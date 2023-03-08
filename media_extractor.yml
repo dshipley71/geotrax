@@ -1,0 +1,26 @@
+#
+# conda env create -f <filename>.yml - this creates an environment 
+# conda env remove -n <env>          - this removes an environment
+#
+# conda list -e > requirements_conda.txt  - list of dependencies and version numbers from conda environment
+# pip install pipreqs
+# pipreqs <path/to/project/folder> - generates a better requirements.txt filename
+#
+name: media_extractor         # ENVIRONMENT NAME
+channels:
+- defaults
+dependencies:                 # EVERYTHING UNDER THIS IS INSTALLED BY CONDA
+- python=3.10
+- pip
+- pip:                        # EVERYTHING UNDER THIS IS INSTALLED BY PIP
+  - opencv-contrib-python     
+  - streamlit
+  - streamlit-profiler  
+  - PyMuPDF                    
+  - python-magic               
+#  - python-magic-bin         # comment out if using Linux/MacOS/WSL and run 'sudo apt-get install libmagic1' instead
+  - pyexiv2                    
+  - stqdm                      
+  - streamlit-aggrid           
+  - mtcnn                      
+  - tensorflow
