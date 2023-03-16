@@ -26,6 +26,8 @@ from PIL import Image as Img
 from mtcnn import MTCNN
 from botocore.exceptions import ClientError
 
+from cluster import Cluster
+
 # supress warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -35,72 +37,6 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 #   2 = INFO and WARNING messages are not printed
 #   3 = INFO, WARNING, and ERROR messages are not printed
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
-class ProgressPercentage(object):
-    """
-    """
-    def __init__(self, filename):
-        self._filename = filename
-        self._size = float(os.path.getsize(filename))
-        self._seen_so_far = 0
-        self._lock = threading.Lock()
-
-    def __call__(self, bytes_amount):
-        # To simplify, assume this is hooked up to a single filename
-        with self._lock:
-            self._seen_so_far += bytes_amount
-            percentage = (self._seen_so_far / self._size) * 100
-            sys.stdout.write(
-                "\r%s  %s / %s  (%.2f%%)\n" % (
-                    self._filename, self._seen_so_far, self._size,
-                    percentage))
-            sys.stdout.flush()
-
-def upload_file(file_name, bucket, object_name=None):
-    """
-    Upload a file to an S3 bucket. The upload_file method accepts a file name,
-    a bucket name, and an object name. The method handles large files by
-    splitting them into smaller chunks and uploading each chunk in parallel.
-
-    :param file_name: File to upload
-    :param bucket: Bucket to upload to
-    :param object_name: S3 object name. If not specified then file_name is used
-    :return: True if file was uploaded, else False
-    """
-
-    # If S3 object_name was not specified, use file_name
-    if object_name is None:
-        object_name = os.path.basename(file_name)
-
-    # Upload the file
-    s3_client = boto3.client('s3')
-    try:
-        response = s3_client.upload_file(file_name, bucket, object_name, Callback=ProgressPercentage(file_name))
-    except ClientError as e:
-        logging.error(e)
-        return False
-    return True
-
-def upload_directory(path, bucketname):
-    s3 = boto3.resource('s3')
-    
-    for root, dirs, files in os.walk(path):
-        for filename in files:
-            file_path = os.path.join(root, filename)
-            bucket_path = os.path.relpath(file_path, path)
-            s3.Bucket(bucketname).upload_file(file_path, bucket_path)
-
-def download_directory(bucket_name, remote_directory_name, download_directory):
-    s3_resource = boto3.resource('s3')
-    bucket = s3_resource.Bucket(bucket_name)
-
-    # create download directory if it does not exist
-    if not os.path.exists(download_directory):
-        os.makedirs(download_directory)
-
-    for obj in bucket.objects.filter(Prefix=remote_directory_name):
-        file_name = obj.key.split('/')[-1]
-        bucket.download_file(obj.key, download_directory + "/" + file_name)
 
 class MediaExtractor(object):
     """
@@ -157,8 +93,33 @@ class MediaExtractor(object):
         
         self.server = None
         
-        self.s3bucket = 'batmanplus'
-        
+        bucket_name = 'batmanplus'
+        self.s3_download = 's3_download'
+        self.s3_resource = boto3.resource('s3')
+        self.s3_bucket = self.s3_resource.Bucket('batmanplus')
+
+    def s3_upload_directory(self, path):
+        """
+        """
+        for root, dirs, files in os.walk(path):
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                bucket_path = os.path.relpath(file_path, path)
+                self.s3_bucket.upload_file(file_path, bucket_path)
+
+    def s3_download_directory(self, remote_directory_name, download_directory):
+        """
+        """
+        for obj in self.s3_bucket.objects.filter(Prefix=remote_directory_name):
+            # create directory if it does not exist
+            local_directory = os.path.join(download_directory, os.path.dirname(obj.key)[len(remote_directory_name):].lstrip('/'))
+            if not os.path.exists(local_directory):
+                os.makedirs(local_directory)
+
+            # download file
+            local_path = os.path.join(local_directory, os.path.basename(obj.key))
+            self.s3_bucket.download_file(obj.key, local_path)
+
     def not_extract(self, file):
         """
         Unsupported file type
@@ -762,6 +723,8 @@ class MediaExtractor(object):
             self.submitted = st.form_submit_button("PROCESS", type='primary')
 
             self.remove_subfolders = st.checkbox('Remove Subfolders', value=True, help='Remove subfolders from output folder')
+            st.session_state.cluster = st.checkbox('Cluster Identities', value=False, help='Cluster cropped images by identity')
+            st.session_state.pose_sort = st.checkbox('Sort by Pose', value=False, help='Sort clustered identies by head pose')
             
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
@@ -899,10 +862,11 @@ class MediaExtractor(object):
             message = f"Click here to open output folder: [{os.path.abspath(self.results_folder)}]({url})."
 
             # upload extracted and cropped images to an S3 bucket
-            upload_directory(os.path.abspath(self.output_folder), self.s3bucket)
+            self.s3_upload_directory(os.path.abspath(self.results_folder))
 
             # download processed data from S3 bucket
-            #download_directory(self.s3bucket, "cropped_faces", "s3_download")
+            #TODO: Replace self.s3_download with self.output_folder once this integrated into s3 on high-side
+            self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
 
             def refresh():
                 components.html("<meta http-equiv='refresh' content='0'>", height=0)
@@ -924,10 +888,6 @@ class MediaExtractor(object):
             with col2:
                 if st.button("Clear All"):
                     refresh()
-
-                #if st.button('Download'):
-                #    download_directory(self.s3bucket, "cropped_faces", "s3_download")
-                #    st.write('Download complete!')
             
 if __name__ == '__main__':
     #from streamlit_profiler import Profiler
