@@ -17,12 +17,19 @@ import cv2
 import pyexiv2 as pex
 import warnings
 import subprocess
+import boto3
 
 from stqdm import stqdm
-from st_aggrid import AgGrid #, GridOptionsBuilder, JsCode, GridUpdateMode
+from st_aggrid import AgGrid
 from zipfile import ZipFile
 from PIL import Image as Img
+from botocore.exceptions import ClientError
+
+from sklearn.cluster import DBSCAN
 from mtcnn import MTCNN
+#from dface import MTCNN
+from dface import FaceNet
+from stqdm import stqdm
 
 # supress warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -37,7 +44,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 class MediaExtractor(object):
     """
     """
-    def __init__(self, confidence=0.90, skip_frames=30, crop_margin=1.10):
+    def __init__(self, confidence=0.90, skip_frames=0, crop_margin=1.10, image_path='output', models='models', device='cpu', minimum_samples=5, eps=0.32, metric='cosine'):
         # supported file types
         self.supported_filetypes = [
             'docx', 'docm', 'dotx', 'dotm', 'xlsx', 'xlsm', 'xltx', 'xltm',
@@ -59,13 +66,8 @@ class MediaExtractor(object):
         # determine file type
         self.mime = magic.Magic(mime=True)
         
-        # MTCNN is used for face detection
-        self.detector = MTCNN() # uses mtcnn, not dface version
-        
-        #self.output_folder = 'output'
-        #self.extract_folder_name = '/extracted_images_unedited/'
-        #self.detection_folder_name = '/detection/'
-        #self.cropped_folder_name = '/cropped_faces/'
+        # this is the name of the top level of the output folder
+        self.results_folder = './output/'
         
         self.subfolders = []
         
@@ -91,6 +93,58 @@ class MediaExtractor(object):
         
         self.server = None
         
+        bucket_name = 'batmanplus'
+        self.s3_download = 's3_download'
+        self.s3_resource = boto3.resource('s3')
+        self.s3_bucket = self.s3_resource.Bucket('batmanplus')
+
+        self.device           = device                      # 'cpu' or 'cuda'
+        self.model_path       = os.path.abspath(models)     # model path for use with dface library (mtcnn, facenet)
+        self.image_path       = os.path.abspath(image_path) # model path for use with dface library (mtcnn, facenet)
+        self.minimum_samples  = minimum_samples             # minimum samples
+        self.maximum_distance = eps                         # EPS
+        self.distance_metric  = 'cosine'                    # distance directory
+            
+        # This mtcnn detector is different from the implementation used by dface
+        # and does not require the mtcnn.pt model. It is strictly CPU based. The
+        # face detection weight model is built into the code.
+        # Reference: https://github.com/ipazc/mtcnn
+        self.detector = MTCNN()
+        
+        # This uses FaceNet's MTCNN implementation and requires the mtcnn.pt model.
+        # This can be used with both CPU and GPU.
+        # Note: To use this, reference the old batman code. The method to obtain
+        # facial embeddings (facial feature vector) is slightly different. The
+        # above method is used to eliminate the need to use an external model.
+        # Reference: dface library
+        #self.detector = MTCNN(self.device, model=self.model_path + '/mtcnn.pt')
+        
+        # This is FaceNet's face recognition model. Requires facenet.pt model. This
+        # can be used with both CPU and GPU.
+        self.facenet = FaceNet(self.device, model=self.model_path + '/facenet.pt')
+
+    def s3_upload_directory(self, path):
+        """
+        """
+        for root, dirs, files in os.walk(path):
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                bucket_path = os.path.relpath(file_path, path)
+                self.s3_bucket.upload_file(file_path, bucket_path)
+
+    def s3_download_directory(self, remote_directory_name, download_directory):
+        """
+        """
+        for obj in self.s3_bucket.objects.filter(Prefix=remote_directory_name):
+            # create directory if it does not exist
+            local_directory = os.path.join(download_directory, os.path.dirname(obj.key)[len(remote_directory_name):].lstrip('/'))
+            if not os.path.exists(local_directory):
+                os.makedirs(local_directory)
+
+            # download file
+            local_path = os.path.join(local_directory, os.path.basename(obj.key))
+            self.s3_bucket.download_file(obj.key, local_path)
+
     def not_extract(self, file):
         """
         Unsupported file type
@@ -652,6 +706,83 @@ class MediaExtractor(object):
 
             except Exception as e:
                 st.error(e)
+
+    def process_images(self, filepath):
+        faces = []
+        names = []
+
+        filenames = glob.glob(filepath + '/*')
+
+        #for filename in filenames:
+        for i in stqdm(range(len(filenames)),
+                       leave=True,
+                       desc='Process Image: ',
+                       gui=True):
+
+            filename = filenames[i]
+            #print(f'==> {filename}')
+
+            # Load the image
+            image = cv2.imread(filename)
+
+            # Detect the face in the image
+            try:
+                results = self.detector.detect_faces(image)
+            except:
+                print(f'Error: {filename} is an invalid image')
+                continue
+
+            if len(results) > 0:
+                # Crop the face from the image
+                x, y, w, h = results[0]['box']
+                face = image[y:y+h, x:x+w]
+
+                # Resize the face to 224x224
+                face = cv2.resize(face, (224, 224))
+                faces.append(face)
+                names.append(filename)
+                
+        return faces, names
+        
+    def cluster_faces(self, filepath):
+        """
+        Function to form clusters using the DBSCAN clustering algorithm
+        """
+        # create cluster directory
+        self.cluster_path = filepath + "/clustered_identities/"
+        if os.path.exists(self.cluster_path):
+            shutil.rmtree(self.cluster_path)
+            os.mkdir(self.cluster_path)
+        else:
+            os.mkdir(self.cluster_path)
+
+        # extract facial feature vector (512 points)
+        self.embeddings = self.facenet.embedding(self.faces)
+        
+        # cluster identities
+        dbscan = DBSCAN(eps=self.maximum_distance, min_samples=self.minimum_samples, metric=self.distance_metric, n_jobs=-1).fit(self.embeddings)
+        labels = dbscan.labels_
+        #print(labels)
+        
+        # create cluster subfolders
+        for cluster_id in range(min(labels), max(labels) + 1):
+            os.mkdir(self.cluster_path + str(cluster_id)) 
+
+        #for i in range(len(labels)):
+        #    src = self.names[i]
+        #    dst = self.cluster_path + str(labels[i])
+        #    shutil.copy(src, dst)
+
+        for i in stqdm(range(len(labels)),
+                       leave=True,
+                       desc='Clustering Results: ',
+                       gui=True):
+        
+            src = self.names[i]
+            dst = self.cluster_path + str(labels[i])
+            shutil.copy(src, dst)
+            
+        return max(labels) + 1
         
     def run(self):
         """
@@ -666,10 +797,17 @@ class MediaExtractor(object):
 
         st.session_state.httpserver = False
         
-        if "disabled" not in st.session_state:
-            st.session_state.disabled = False
+        #if "disabled" not in st.session_state:
+        #    st.session_state.disabled = False
             
-        with st.form("my-form", clear_on_submit=True):
+        #def disable():
+        #    st.session_state.disabled = True
+            
+        #st.write(st.session_state.subfolder)
+        #if "subfolder" not in st.session_state:
+        #    st.session_state.subfolder = ""
+            
+        with st.form("my-form", clear_on_submit=False):
             # set title and format
             st.markdown(""" <style> .font {font-size:60px; font-family: 'Sans-serif'; text-align:center; color: blue;} </style> """, unsafe_allow_html=True)
             st.markdown('<p class="font">Media Extractor</p>', unsafe_allow_html=True)
@@ -677,7 +815,9 @@ class MediaExtractor(object):
             self.uploaded_files = st.file_uploader("Choose a media file (image, video, or document):", type=self.supported_filetypes, accept_multiple_files=True)
 
             st.subheader('Media Output')
-            self.output_folder = st.text_input('Enter directory to store cropped images:', value="output")
+            st.text_input('Enter directory to store cropped images:', value="", key="subfolder")
+            
+            self.output_folder = os.path.abspath(self.results_folder + st.session_state.subfolder)
             self.extract_folder_name = '/extracted_images_unedited/'
             self.detection_folder_name = '/detection/'
             self.cropped_folder_name = '/cropped_faces/'
@@ -685,6 +825,8 @@ class MediaExtractor(object):
             self.submitted = st.form_submit_button("PROCESS", type='primary')
 
             self.remove_subfolders = st.checkbox('Remove Subfolders', value=True, help='Remove subfolders from output folder')
+            st.session_state.cluster = st.checkbox('Cluster Identities', value=True, help='Cluster cropped images by identity')
+            st.session_state.pose_sort = st.checkbox('Sort by Pose', value=False, help='Sort clustered identies by head pose')
             
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
@@ -807,17 +949,31 @@ class MediaExtractor(object):
             if self.remove_subfolders:
                 for subfolder in self.subfolders:
                     shutil.rmtree(subfolder)
+                                       
+            if st.session_state.cluster:
+                self.faces, self.names = self.process_images(cropped_folder)
+                nclusters = self.cluster_faces(self.output_folder)
+                st.info(f"* Completed clustering identites. Found {nclusters} identities.")
 
             # launch file server
-#            if not st.session_state.httpserver:
-#                st.session_state.httpserver = True
-#                cmd = ["python", "-m", "http.server", "8502"]
-#                subprocess.Popen(cmd, cwd=os.path.abspath(self.output_folder))
+            if not st.session_state.httpserver:
+                st.session_state.httpserver = True
+                cmd = ["python", "-m", "http.server", "8506"]
+                try:
+                    subprocess.Popen(cmd, cwd=os.path.abspath(self.results_folder), stderr=subprocess.DEVNULL)
+                except:
+                    print("==> File server is already running!")
 
             # provide link to file server
-#            url = "http://localhost:8502"
-#            message = f"Output directory location: [{os.path.abspath(self.output_folder)}]({url})."
+            url = "http://localhost:8506"
+            message = f"Click here to open output folder: [{os.path.abspath(self.results_folder)}]({url})."
 
+            # upload extracted and cropped images to an S3 bucket
+            #self.s3_upload_directory(os.path.abspath(self.results_folder))
+
+            # download processed data from S3 bucket
+            #TODO: Replace self.s3_download with self.output_folder once this integrated into s3 on high-side
+            #self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
 
             def refresh():
                 components.html("<meta http-equiv='refresh' content='0'>", height=0)
@@ -833,12 +989,13 @@ class MediaExtractor(object):
             col1, col2 = st.columns([11,1])
 
             with col1:
-                st.markdown(f"Output Directory Location: **:blue[{os.path.abspath(self.output_folder)}]**")
+                st.markdown(message)
+                #st.markdown(f"Output Directory Location: **:blue[{os.path.abspath(self.output_folder)}]**")
     
             with col2:
-                if st.button("  Reset  "):
+                if st.button("Clear All"):
                     refresh()
-
+            
 if __name__ == '__main__':
     #from streamlit_profiler import Profiler
     #with Profiler():
