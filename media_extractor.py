@@ -44,7 +44,10 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 class MediaExtractor(object):
     """
     """
-    def __init__(self, confidence=0.90, skip_frames=0, crop_margin=1.10, image_path='output', models='models', device='cpu', minimum_samples=5, eps=0.32, metric='cosine'):
+    def __init__(self, confidence=0.90, skip_frames=0, crop_margin=1.10, image_path='output',
+                 models='models', device='cpu', minimum_samples=5, eps=0.32, metric='cosine',
+                 bucket_name=None, bucket_folder='s3_download'):
+
         # supported file types
         self.supported_filetypes = [
             'docx', 'docm', 'dotx', 'dotm', 'xlsx', 'xlsm', 'xltx', 'xltm',
@@ -93,10 +96,26 @@ class MediaExtractor(object):
         
         self.server = None
         
-        bucket_name = 'batmanplus'
-        self.s3_download = 's3_download'
-        self.s3_resource = boto3.resource('s3')
-        self.s3_bucket = self.s3_resource.Bucket('batmanplus')
+        # To utilize upload/download data to an S3 bucket, a credentials file
+        # needs to be created and stored in the ~/.aws folder. Alternatively,
+        # environment variables can be used to store the required AWS keys.
+        # See BOTO3 documentation for setup of a credentials file and/or
+        # setting up of environment variables.
+        # Reference:
+        #   https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html
+
+        # Mounting an S3 bucket inside a docker container
+        # Reference: https://github.com/skypeter1/docker-s3-bucket
+        
+        # setup for upload/download to an S3 bucket
+        self.bucket_name = bucket_name
+        if self.bucket_name is not None:
+            print(">>>>> S3 BUCKET ENABLED <<<<<")
+            self.s3_download = bucket_folder
+            self.s3_resource = boto3.resource('s3')
+            self.s3_bucket = self.s3_resource.Bucket(bucket)# 'batmanplus'
+        else:
+            print("<<<<< S3 BUCKET DISABLED >>>>>")
 
         self.device           = device                      # 'cpu' or 'cuda'
         self.model_path       = os.path.abspath(models)     # model path for use with dface library (mtcnn, facenet)
@@ -116,11 +135,12 @@ class MediaExtractor(object):
         # Note: To use this, reference the old batman code. The method to obtain
         # facial embeddings (facial feature vector) is slightly different. The
         # above method is used to eliminate the need to use an external model.
-        # Reference: dface library
+        # Reference: https://github.com/deepware/dface
         #self.detector = MTCNN(self.device, model=self.model_path + '/mtcnn.pt')
         
         # This is FaceNet's face recognition model. Requires facenet.pt model. This
         # can be used with both CPU and GPU.
+        # Reference: https://github.com/deepware/dface
         self.facenet = FaceNet(self.device, model=self.model_path + '/facenet.pt')
 
     def s3_upload_directory(self, path):
@@ -716,7 +736,7 @@ class MediaExtractor(object):
         #for filename in filenames:
         for i in stqdm(range(len(filenames)),
                        leave=True,
-                       desc='Process Image: ',
+                       desc='Processing Images for Clustering: ',
                        gui=True):
 
             filename = filenames[i]
@@ -781,6 +801,11 @@ class MediaExtractor(object):
             src = self.names[i]
             dst = self.cluster_path + str(labels[i])
             shutil.copy(src, dst)
+
+        try:
+            os.rename(self.cluster_path + '/-1', self.cluster_path + '/unclustered_identities')
+        except:
+            pass
             
         return max(labels) + 1
         
@@ -825,8 +850,8 @@ class MediaExtractor(object):
             self.submitted = st.form_submit_button("PROCESS", type='primary')
 
             self.remove_subfolders = st.checkbox('Remove Subfolders', value=True, help='Remove subfolders from output folder')
-            st.session_state.cluster = st.checkbox('Cluster Identities', value=True, help='Cluster cropped images by identity')
-            st.session_state.pose_sort = st.checkbox('Sort by Pose', value=False, help='Sort clustered identies by head pose')
+            st.session_state.cluster = st.checkbox('Cluster Identities', value=False, help='Cluster cropped images by identity')
+            #st.session_state.pose_sort = st.checkbox('Sort by Pose', value=False, help='Sort clustered identies by head pose')
             
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
@@ -960,7 +985,12 @@ class MediaExtractor(object):
                 st.session_state.httpserver = True
                 cmd = ["python", "-m", "http.server", "8506"]
                 try:
-                    subprocess.Popen(cmd, cwd=os.path.abspath(self.results_folder), stderr=subprocess.DEVNULL)
+                    # run file server on S3 bucket download folder if S3 bucket name is specified
+                    # otherwise, use local download folder
+                    if self.bucket_name is None:
+                        subprocess.Popen(cmd, cwd=os.path.abspath(self.results_folder), stderr=subprocess.DEVNULL)
+                    else:
+                        subprocess.Popen(cmd, cwd=os.path.abspath(self.s3_download), stderr=subprocess.DEVNULL)
                 except:
                     print("==> File server is already running!")
 
@@ -968,12 +998,13 @@ class MediaExtractor(object):
             url = "http://localhost:8506"
             message = f"Click here to open output folder: [{os.path.abspath(self.results_folder)}]({url})."
 
-            # upload extracted and cropped images to an S3 bucket
-            #self.s3_upload_directory(os.path.abspath(self.results_folder))
+            if self.bucket_name is not None:
+                # upload extracted and cropped images to an S3 bucket
+                self.s3_upload_directory(os.path.abspath(self.results_folder))
 
-            # download processed data from S3 bucket
-            #TODO: Replace self.s3_download with self.output_folder once this integrated into s3 on high-side
-            #self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
+                # download processed data from S3 bucket
+                #TODO: Replace self.s3_download with self.output_folder once this integrated into s3 on high-side
+                self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
 
             def refresh():
                 components.html("<meta http-equiv='refresh' content='0'>", height=0)

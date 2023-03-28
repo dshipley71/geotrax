@@ -3,6 +3,7 @@
 # conda env remove -n <env>          - this removes an environment
 #
 # conda list -e > requirements_conda.txt  - list of dependencies and version numbers from conda environment
+#
 # pip install pipreqs
 # pipreqs <path/to/project/folder> - generates a better requirements.txt filename
 #
@@ -13,14 +14,20 @@ dependencies:                 # EVERYTHING UNDER THIS IS INSTALLED BY CONDA
 - python=3.10
 - pip
 - pip:                        # EVERYTHING UNDER THIS IS INSTALLED BY PIP
+  - boto3
+  - dface
+  - mtcnn                      
   - opencv-contrib-python     
-  - streamlit
-  - streamlit-profiler  
+  - pyexiv2                    
   - PyMuPDF                    
   - python-magic               
 #  - python-magic-bin         # comment out if using Linux/MacOS/WSL and run 'sudo apt-get install libmagic1' instead
-  - pyexiv2                    
-  - stqdm                      
+  - scikit-learn
+  - streamlit
+  - streamlit-profiler  
   - streamlit-aggrid           
-  - mtcnn                      
+  - stqdm                      
   - tensorflow
+  - torch
+  - torchvision
+  - torchaudio
