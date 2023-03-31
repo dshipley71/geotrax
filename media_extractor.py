@@ -953,8 +953,7 @@ class MediaExtractor(object):
 
             extract_folder = os.path.abspath(self.output_folder + self.extract_folder_name)
             cropped_folder = os.path.abspath(self.output_folder + self.cropped_folder_name)
-            
-            
+                        
             if os.path.exists(cropped_folder):
                 shutil.rmtree(cropped_folder)
                 shutil.rmtree(extract_folder)
@@ -974,11 +973,16 @@ class MediaExtractor(object):
             if self.remove_subfolders:
                 for subfolder in self.subfolders:
                     shutil.rmtree(subfolder)
-                                       
+            
+            # cluster identities or remove cluster folder if it exists from previous run
             if st.session_state.cluster:
                 self.faces, self.names = self.process_images(cropped_folder)
                 nclusters = self.cluster_faces(self.output_folder)
                 st.info(f"* Completed clustering identites. Found {nclusters} identities.")
+            else:
+                self.cluster_path = self.output_folder + "/clustered_identities/"
+                if os.path.exists(self.cluster_path):
+                    shutil.rmtree(self.cluster_path)
 
             # launch file server
             if not st.session_state.httpserver:

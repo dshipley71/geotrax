@@ -1,7 +1,6 @@
 boto3==1.26.86
 botocore==1.29.86
 dface==1.1.5
-fitz==0.0.1.dev2
 mtcnn==0.1.1
 numpy==1.24.2
 opencv_contrib_python==4.7.0.68

@@ -2,6 +2,7 @@
 ### docker system prune -a                                      (remove images)
 ### docker build -t media_extractor . --progress=plain        (build container)
 ### docker run -p 8501:8501 -t media_extractor                (run from brower)
+### docker run -p 8501:8501 -p 8506:8506 -t media_extractor   (run from brower)
 ### docker run -it --entrypoint /bin/bash media_extractor  (login to container)
 ###############################################################################
 
@@ -9,7 +10,7 @@
 FROM continuumio/miniconda3:latest
 
 ### Port to be used for displaying project webpage (http://localhost:8051)
-EXPOSE 8501
+EXPOSE 8501 8506
 
 ### Project location in the docker container.
 WORKDIR /media_extractor
@@ -17,13 +18,18 @@ WORKDIR /media_extractor
 ### Update the linux OS contained in the docker container with project dependencies
 RUN apt-get update && apt-get upgrade -y && apt-get -y install \
     python3-opencv \
-    libmagic1 && \
+    libmagic1 \
+    vim && \
     rm -rf /var/lib/apt/lists/*
 
 # This will copy a python project to a Docker container. Make sure the
 # Dockerfile is at the top of the project folder. Run the docker build
 # command from the same location.
 COPY . .
+
+# Create AWS directory containing empty credentials file
+RUN mkdir -p ~/.aws
+RUN mv credentials_empty ~/.aws/credentials
 
 ### Install project dependencies.
 RUN pip3 install -r requirements.txt
