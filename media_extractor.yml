@@ -14,6 +14,7 @@ dependencies:                 # EVERYTHING UNDER THIS IS INSTALLED BY CONDA
 - python=3.10
 - pip
 - pip:                        # EVERYTHING UNDER THIS IS INSTALLED BY PIP
+  - argparse
   - boto3
   - colorlog
   - dface
