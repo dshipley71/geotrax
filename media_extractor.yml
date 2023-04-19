@@ -15,9 +15,12 @@ dependencies:                 # EVERYTHING UNDER THIS IS INSTALLED BY CONDA
 - pip
 - pip:                        # EVERYTHING UNDER THIS IS INSTALLED BY PIP
   - boto3
+  - colorlog
   - dface
+  - flask
   - mtcnn                      
-  - opencv-contrib-python     
+  - opencv-contrib-python
+  - piexif  
   - pyexiv2                    
   - PyMuPDF                    
   - python-magic               

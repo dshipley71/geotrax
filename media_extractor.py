@@ -985,23 +985,37 @@ class MediaExtractor(object):
                     shutil.rmtree(self.cluster_path)
 
             # launch file server
+#            print('===> ', st.session_state.httpserver)
+#            if not st.session_state.httpserver:
+#                st.session_state.httpserver = True
+#                cmd = ["python", "-m", "http.server", "8506"]
+#                try:
+#                    # run file server on S3 bucket download folder if S3 bucket name is specified
+#                    # otherwise, use local download folder
+#                    if self.bucket_name is None:
+#                        subprocess.Popen(cmd, cwd=os.path.abspath(self.results_folder), stderr=subprocess.DEVNULL)
+#                    else:
+#                        subprocess.Popen(cmd, cwd=os.path.abspath(self.s3_download), stderr=subprocess.DEVNULL)
+#                        
+#                except:
+#                    print("===> File server is already running!")
+
+            # launch file server
             if not st.session_state.httpserver:
                 st.session_state.httpserver = True
-                cmd = ["python", "-m", "http.server", "8506"]
-                try:
-                    # run file server on S3 bucket download folder if S3 bucket name is specified
-                    # otherwise, use local download folder
-                    if self.bucket_name is None:
-                        subprocess.Popen(cmd, cwd=os.path.abspath(self.results_folder), stderr=subprocess.DEVNULL)
-                    else:
-                        subprocess.Popen(cmd, cwd=os.path.abspath(self.s3_download), stderr=subprocess.DEVNULL)
-                except:
-                    print("==> File server is already running!")
+#                cmd2 = ["python", "gallery.py", "--imagedir", os.path.abspath(self.output_folder) + '/cropped_faces', "--port", "8506"]
+                cmd2 = ["python", "gallery.py", "--directory", os.path.abspath(self.output_folder), "--port", "8506"]
+                print('===> ', os.path.abspath(self.results_folder))
+                print('===> ', cmd2)
+                subprocess.Popen(cmd2)
+            else:
+                print("===> File server is already running!")
 
             # provide link to file server
             url = "http://localhost:8506"
-            message = f"Click here to open output folder: [{os.path.abspath(self.results_folder)}]({url})."
-
+#            message = f"Click here to open output folder: [{os.path.abspath(self.output_folder) + '/cropped_images'}]({url})."
+            message = f"Click here to open output folder: [{os.path.abspath(self.output_folder)}]({url})."
+            
             if self.bucket_name is not None:
                 # upload extracted and cropped images to an S3 bucket
                 self.s3_upload_directory(os.path.abspath(self.results_folder))
