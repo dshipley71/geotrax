@@ -4,7 +4,7 @@ import argparse
 from datetime import datetime
 from flask import Flask, render_template, send_from_directory, send_file, after_this_request, make_response
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='assets')
 
 @app.route('/')
 def index():
@@ -27,52 +27,12 @@ def send_image(subdirectory, image_name):
     directory = os.path.join(args.directory, subdirectory)
     return send_from_directory(directory, image_name)
 
-#  @app.route('/download/')
-# def download():
-    # # Get the absolute path of the output directory
-    # output_dir = os.path.abspath(args.directory)
-
-    # # Create the zip file name based on the current date and time
-    # timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-    # zip_filename = f'media_extractor_images_{timestamp}.zip'
-
-    # # Create a temporary zip file in memory
-    # zip_file = zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED)
-
-    # # Iterate over all files in the output directory and add them to the zip file
-    # for root, dirs, files in os.walk(output_dir):
-        # for file in files:
-            # file_path = os.path.join(root, file)
-            # zip_file.write(file_path, os.path.relpath(file_path, output_dir))
-
-    # # Close the zip file
-    # zip_file.close()
-
-    # # Send the zip file as a download
-    # #@after_this_request
-    # #def remove_file(response):
-    # #    try:
-    # #        os.remove(zip_filename)
-    # #    except Exception as error:
-    # #        app.logger.error("Error removing or closing downloaded file handle", error)
-    # #   return response
-
-    # # Send the zip file as a download
-    # with open(zip_filename, 'rb') as f:
-        # #return send_file(f, as_attachment=True, attachment_filename=zip_filename)
-        # response = make_response(send_file(f, as_attachment=True, attachment_filename=zip_filename))
-        # response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-        # response.headers['Pragma'] = 'no-cache'
-        # response.headers['Expires'] = '0'
-        # return response
-
 @app.route('/download/')
 def download():
     # Get the absolute path of the output directory
     output_dir = os.path.abspath(args.directory)
 
     # create a zip file containing all images in the directory
-    #zip_filename = 'images.zip'
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
     zip_filename = f'media_extractor_images_{timestamp}.zip'
 
