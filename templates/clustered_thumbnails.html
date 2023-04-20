@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link href="../assets/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container">
+    <h1 class="page-header">Media Extractor</h1>
+    <hr>
+    <div class="row">
+        {% for subfolder in os.listdir(folder) %}
+        <div class="col-12">
+            <h2>{{ subfolder }}</h2>
+        </div>
+        {% for image_name in os.listdir(os.path.join(folder, subfolder)) %}
+        <div class="col-xs-12 col-sm-6 col-md-4 col-lg-3">
+            <div class="img-fluid" align="center">
+                <img src="{{ url_for('send_image', subdirectory=subdirectory_name + '/' + subfolder, image_name=image_name) }}" alt="{{ image_name }}" class="img-responsive" width="75" height="auto">
+                <div class="caption">
+                    <h6>{{ image_name }}</h6>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        {% endfor %}
+    </div>
+</div>
+<script src="../assets/bootstrap.bundle.min.js"></script>
+</body>
+</html>

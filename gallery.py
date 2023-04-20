@@ -22,6 +22,13 @@ def cropped_faces():
     image_names = [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
     return render_template('thumbnails.html', subdirectory_name='cropped_faces', image_names=image_names)
 
+@app.route('/clustered_identities/')
+def clustered_identities():
+    folder = os.path.join(args.directory, 'clustered_identities')
+    if not os.path.exists(folder):
+        return "<b>WARNING: Clustered identities not found. Make sure to select the clustered identities checkbox on the Media Extractor page.</b>"
+    return render_template('clustered_thumbnails.html', subdirectory_name='clustered_identities', folder=folder, os=os)
+
 @app.route('/<path:subdirectory>/<path:image_name>')
 def send_image(subdirectory, image_name):
     directory = os.path.join(args.directory, subdirectory)
