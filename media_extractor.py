@@ -115,7 +115,8 @@ class MediaExtractor(object):
             self.s3_resource = boto3.resource('s3')
             self.s3_bucket = self.s3_resource.Bucket(bucket)# 'batmanplus'
         else:
-            print("<<<<< S3 BUCKET DISABLED >>>>>")
+            pass
+            #print("<<<<< S3 BUCKET DISABLED >>>>>")
 
         self.device           = device                      # 'cpu' or 'cuda'
         self.model_path       = os.path.abspath(models)     # model path for use with dface library (mtcnn, facenet)

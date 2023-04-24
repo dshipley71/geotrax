@@ -34,24 +34,65 @@ def send_image(subdirectory, image_name):
     directory = os.path.join(args.directory, subdirectory)
     return send_from_directory(directory, image_name)
 
+# @app.route('/download/')
+# def download():
+    # # Get the absolute path of the output directory
+    # output_dir = os.path.abspath(args.directory)
+
+    # # create a zip file containing all images in the directory
+    # timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+    # zip_filename = f'media_extractor_images_{timestamp}.zip'
+
+    # # Iterate over all files in the output directory and add them to the zip file
+    # with zipfile.ZipFile(zip_filename, 'w') as zip_file:
+        # for root, dirs, files in os.walk(output_dir):
+            # for file in files:
+                # file_path = os.path.join(root, file)
+                # zip_file.write(file_path, os.path.relpath(file_path, output_dir))
+
+    # # send the zip file to the user for download
+    # return send_file(zip_filename, as_attachment=True)
+
 @app.route('/download/')
 def download():
-    # Get the absolute path of the output directory
-    output_dir = os.path.abspath(args.directory)
-
     # create a zip file containing all images in the directory
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
     zip_filename = f'media_extractor_images_{timestamp}.zip'
 
-    # Iterate over all files in the output directory and add them to the zip file
-    with zipfile.ZipFile(zip_filename, 'w') as zip_file:
-        for root, dirs, files in os.walk(output_dir):
-            for file in files:
-                file_path = os.path.join(root, file)
-                zip_file.write(file_path, os.path.relpath(file_path, output_dir))
+    def generate():
+        # Get the absolute path of the output directory
+        output_dir = os.path.abspath(args.directory)
 
-    # send the zip file to the user for download
-    return send_file(zip_filename, as_attachment=True)
+        # create a zip file containing all images in the directory
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        zip_filename = f'media_extractor_images_{timestamp}.zip'
+
+        # Iterate over all files in the output directory and add them to the zip file
+        with zipfile.ZipFile(zip_filename, 'w') as zip_file:
+            for root, dirs, files in os.walk(output_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    zip_file.write(file_path, os.path.relpath(file_path, output_dir))
+
+        # stream the zip file to the user for download
+        with open(zip_filename, 'rb') as f:
+            while True:
+                data = f.read(1024*1024)
+                if not data:
+                    break
+                yield data
+
+        # delete the zip file after sending
+        os.remove(zip_filename)
+
+    # set the response headers for streaming
+    response = make_response(generate())
+    response.headers.set('Content-Disposition', 'attachment', filename=zip_filename)
+    response.headers.set('Content-Type', 'application/zip')
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    response.headers.set('Pragma', 'no-cache')
+    response.headers.set('Expires', '0')
+    return response
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -59,4 +100,4 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--directory', type=str, default='.', help='Parent directory location')
     args = parser.parse_args()
 
-    app.run(debug=True, port=args.port)
+    app.run(host="0.0.0.0", debug=True, port=args.port)
