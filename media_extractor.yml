@@ -20,7 +20,7 @@ dependencies:                 # EVERYTHING UNDER THIS IS INSTALLED BY CONDA
   - dface
   - flask
   - mtcnn                      
-  - opencv-contrib-python
+  - opencv-contrib-python-headless
   - piexif  
   - pyexiv2                    
   - PyMuPDF                    
