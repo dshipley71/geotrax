@@ -43,6 +43,8 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 class MediaExtractor(object):
     """
+    If using an S3 bucket to stored processed images, make sure to specify the
+    bucket name. Otherwise processed images will only be stored locally.
     """
     def __init__(self, confidence=0.90, skip_frames=0, crop_margin=1.10, image_path='output',
                  models='models', device='cpu', minimum_samples=5, eps=0.32, metric='cosine',
@@ -113,7 +115,7 @@ class MediaExtractor(object):
             print(">>>>> S3 BUCKET ENABLED <<<<<")
             self.s3_download = bucket_folder
             self.s3_resource = boto3.resource('s3')
-            self.s3_bucket = self.s3_resource.Bucket(bucket)# 'batmanplus'
+            self.s3_bucket = self.s3_resource.Bucket(self.bucket_name)
         else:
             pass
             #print("<<<<< S3 BUCKET DISABLED >>>>>")
@@ -841,7 +843,7 @@ class MediaExtractor(object):
             self.uploaded_files = st.file_uploader("Choose a media file (image, video, or document):", type=self.supported_filetypes, accept_multiple_files=True)
 
             st.subheader('Media Output')
-            st.text_input('Enter directory to store cropped images:', value="", key="subfolder")
+            st.text_input('Enter folder name to store cropped images:', value="", key="subfolder")
             
             self.output_folder = os.path.abspath(self.results_folder + st.session_state.subfolder)
             self.extract_folder_name = '/extracted_images_unedited/'
@@ -986,25 +988,8 @@ class MediaExtractor(object):
                     shutil.rmtree(self.cluster_path)
 
             # launch file server
-#            print('===> ', st.session_state.httpserver)
-#            if not st.session_state.httpserver:
-#                st.session_state.httpserver = True
-#                cmd = ["python", "-m", "http.server", "8506"]
-#                try:
-#                    # run file server on S3 bucket download folder if S3 bucket name is specified
-#                    # otherwise, use local download folder
-#                    if self.bucket_name is None:
-#                        subprocess.Popen(cmd, cwd=os.path.abspath(self.results_folder), stderr=subprocess.DEVNULL)
-#                    else:
-#                        subprocess.Popen(cmd, cwd=os.path.abspath(self.s3_download), stderr=subprocess.DEVNULL)
-#                        
-#                except:
-#                    print("===> File server is already running!")
-
-            # launch file server
             if not st.session_state.httpserver:
                 st.session_state.httpserver = True
-#                cmd2 = ["python", "gallery.py", "--imagedir", os.path.abspath(self.output_folder) + '/cropped_faces', "--port", "8506"]
                 cmd2 = ["python", "gallery.py", "--directory", os.path.abspath(self.output_folder), "--port", "8506"]
                 print('===> ', os.path.abspath(self.results_folder))
                 print('===> ', cmd2)
@@ -1014,7 +999,6 @@ class MediaExtractor(object):
 
             # provide link to file server
             url = "http://localhost:8506"
-#            message = f"Click here to open output folder: [{os.path.abspath(self.output_folder) + '/cropped_images'}]({url})."
             message = f"Click here to open output folder: [{os.path.abspath(self.output_folder)}]({url})."
             
             if self.bucket_name is not None:
@@ -1022,8 +1006,7 @@ class MediaExtractor(object):
                 self.s3_upload_directory(os.path.abspath(self.results_folder))
 
                 # download processed data from S3 bucket
-                #TODO: Replace self.s3_download with self.output_folder once this integrated into s3 on high-side
-                self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
+                #self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
 
             def refresh():
                 components.html("<meta http-equiv='refresh' content='0'>", height=0)
