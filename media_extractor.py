@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 import magic
 import cv2
-import pyexiv2 as pex
+#import pyexiv2 as pex
 import warnings
 import subprocess
 import platform
@@ -640,26 +640,26 @@ class MediaExtractor(object):
                     st.error(e)
                     break
 
-                # check for EXIV data
-                try:
-                    pimg = pex.Image(imgfile)
-                    data = pimg.read_exif()
-                    pimg.close()
-
-                    if data:
-                        exif_data = "yes"
-                    else:
-                        exif_data = "no"
-
-                except Exception as e:
-                    st.error(e)
-                    break
+#                # check for EXIV data
+#                try:
+#                    pimg = pex.Image(imgfile)
+#                    data = pimg.read_exif()
+#                    pimg.close()
+#
+#                    if data:
+#                        exif_data = "yes"
+#                    else:
+#                        exif_data = "no"
+#
+#                except Exception as e:
+#                    st.error(e)
+#                    break
 
                 cropped_hash = cv2.img_hash.averageHash(cv2.imread(imgfile))[0]
                 cropped_hash = ''.join(hex(i)[2:] for i in cropped_hash)
 
                 metadata = {'Media': f,
-                            'EXIF': exif_data,
+                            'EXIF': '', #exif_data,
                             'Size': os.path.getsize(output_folder + '/' + f),
                             'Height': im.height,
                             'Width': im.width,
