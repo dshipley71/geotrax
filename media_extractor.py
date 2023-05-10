@@ -17,6 +17,7 @@ import cv2
 import pyexiv2 as pex
 import warnings
 import subprocess
+import platform
 import boto3
 
 from stqdm import stqdm
@@ -40,6 +41,44 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 #   2 = INFO and WARNING messages are not printed
 #   3 = INFO, WARNING, and ERROR messages are not printed
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+def find_process_ids(port):
+    process_ids = []
+    system = platform.system()
+    if system == 'Windows':
+        try:
+            output = subprocess.check_output(['netstat', '-ano', '-p', 'tcp'])
+            lines = output.decode().split('\n')
+            for line in lines:
+                if 'LISTENING' in line and f':{port}' in line:
+                    process_id = int(line.split()[-1])
+                    process_ids.append(process_id)
+        except subprocess.CalledProcessError:
+            pass
+    elif system == 'Linux':
+        try:
+            output = subprocess.check_output(['lsof', '-i', f'tcp:{port}'])
+            lines = output.decode().split('\n')
+            for line in lines[1:]:
+                if line:
+                    process_id = int(line.split()[1])
+                    process_ids.append(process_id)
+        except subprocess.CalledProcessError:
+            pass
+
+    return process_ids
+
+def kill_processes(process_ids):
+    system = platform.system()
+    for process_id in process_ids:
+        try:
+            if system == 'Windows':
+                subprocess.check_output(['taskkill', '/F', '/PID', str(process_id)])
+            elif system == 'Linux':
+                subprocess.check_output(['kill', '-9', str(process_id)])
+            print(f"Process {process_id} killed successfully!")
+        except subprocess.CalledProcessError:
+            print(f"Failed to kill process {process_id}.")
 
 class MediaExtractor(object):
     """
@@ -843,7 +882,7 @@ class MediaExtractor(object):
             self.uploaded_files = st.file_uploader("Choose a media file (image, video, or document):", type=self.supported_filetypes, accept_multiple_files=True)
 
             st.subheader('Media Output')
-            st.text_input('Enter folder name to store cropped images:', value="", key="subfolder")
+            project_folder = st.text_input('Enter folder name to store images:', value="", key="subfolder")
             
             self.output_folder = os.path.abspath(self.results_folder + st.session_state.subfolder)
             self.extract_folder_name = '/extracted_images_unedited/'
@@ -851,7 +890,7 @@ class MediaExtractor(object):
             self.cropped_folder_name = '/cropped_faces/'
 
             self.submitted = st.form_submit_button("PROCESS", type='primary')
-
+            
             self.remove_subfolders = st.checkbox('Remove Subfolders', value=True, help='Remove subfolders from output folder')
             st.session_state.cluster = st.checkbox('Cluster Identities', value=False, help='Cluster cropped images by identity')
             #st.session_state.pose_sort = st.checkbox('Sort by Pose', value=False, help='Sort clustered identies by head pose')
@@ -878,8 +917,9 @@ class MediaExtractor(object):
                 self.crop_margin = 1.50
             elif bbox_option == 'Extra-Wide':
                 self.crop_margin = 1.70
-                        
-            if self.submitted and self.uploaded_files != []:
+
+            print('===> PROJECT: ', project_folder)
+            if self.submitted and self.uploaded_files != [] and project_folder != "":
                 max_files = len(self.uploaded_files)
 
                 for i in stqdm(range(max_files),
@@ -988,6 +1028,10 @@ class MediaExtractor(object):
                     shutil.rmtree(self.cluster_path)
 
             # launch file server
+            process_ids = find_process_ids("8506")
+            if process_ids:
+                kill_processes(process_ids)
+            
             if not st.session_state.httpserver:
                 st.session_state.httpserver = True
                 if self.bucket_name is None:

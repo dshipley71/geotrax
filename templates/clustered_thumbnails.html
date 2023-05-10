@@ -9,23 +9,23 @@
 <div class="container">
     <h1 class="page-header">Media Extractor</h1>
     <hr>
+    {% for subfolder, files in subfolder_contents.items() %}
     <div class="row">
-        {% for subfolder in os.listdir(folder) %}
         <div class="col-12">
             <h2>{{ subfolder }}</h2>
         </div>
-        {% for image_name in os.listdir(os.path.join(folder, subfolder)) %}
+        {% for file in files %}
         <div class="col-xs-12 col-sm-6 col-md-4 col-lg-3">
             <div class="img-fluid" align="center">
-                <img src="{{ url_for('send_image', subdirectory=subdirectory_name + '/' + subfolder, image_name=image_name) }}" alt="{{ image_name }}" class="img-responsive" width="75" height="auto">
+                <img src="{{ url_for('send_image', subdirectory=subfolder, image_name=os.path.basename(file)) }}" alt="{{ os.path.basename(file) }}" class="img-responsive" width="75" height="auto">
                 <div class="caption">
-                    <h6>{{ image_name }}</h6>
+                    <h6>{{ os.path.basename(file) }}</h6>
                 </div>
             </div>
         </div>
         {% endfor %}
-        {% endfor %}
     </div>
+    {% endfor %}
 </div>
 <script src="../assets/bootstrap.bundle.min.js"></script>
 </body>

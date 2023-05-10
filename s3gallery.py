@@ -53,7 +53,16 @@ def clustered_identities():
     print('===> filtered: ', filtered_contents)
     if filtered_contents == []:
         return "<b>WARNING: Clustered identities not found. Make sure to select the clustered identities checkbox on the Media Extractor page.</b>"
-    return render_template('clustered_thumbnails.html', image_names=filtered_contents)
+
+    subfolders = sorted(set([os.path.dirname(file) for file in filtered_contents]))
+    print('===> subfolders: ', subfolders)
+
+    subfolder_contents = {}
+    for subfolder in subfolders:
+        subfolder_files = [file for file in filtered_contents if file.startswith(subfolder)]
+        subfolder_contents[subfolder] = subfolder_files
+
+    return render_template('s3_clustered_thumbnails.html', subfolder_contents=subfolder_contents)
 
 @app.route('/<path:subdirectory>/<path:image_name>')
 def send_image(subdirectory, image_name):
