@@ -990,16 +990,12 @@ class MediaExtractor(object):
             # launch file server
             if not st.session_state.httpserver:
                 st.session_state.httpserver = True
-                cmd2 = ["python", "gallery.py", "--directory", os.path.abspath(self.output_folder), "--port", "8506"]
+                cmd2 = ["python", "s3gallery.py", "--directory", os.path.abspath(self.output_folder), "--port", "8506"]
                 print('===> ', os.path.abspath(self.results_folder))
                 print('===> ', cmd2)
                 subprocess.Popen(cmd2)
             else:
                 print("===> File server is already running!")
-
-            # provide link to file server
-            url = "http://localhost:8506"
-            message = f"Click here to open output folder: [{os.path.abspath(self.output_folder)}]({url})."
             
             if self.bucket_name is not None:
                 # upload extracted and cropped images to an S3 bucket
@@ -1007,6 +1003,10 @@ class MediaExtractor(object):
 
                 # download processed data from S3 bucket
                 #self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
+
+            # provide link to file server
+            url = "http://localhost:8506"
+            message = f"Click here to open output folder: [{os.path.abspath(self.output_folder)}]({url})."
 
             def refresh():
                 components.html("<meta http-equiv='refresh' content='0'>", height=0)
