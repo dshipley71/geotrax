@@ -12,7 +12,7 @@ def get_s3_bucket_contents(bucket_name):
     s3 = boto3.resource('s3')
     bucket = s3.Bucket(bucket_name)
     contents = [obj.key for obj in bucket.objects.all()]
-    print('===> contents:', contents)
+    #print('===> contents:', contents)
     return contents
     
 @app.route('/')
@@ -24,10 +24,10 @@ def extracted_images_unedited():
     bucket_name = args.bucket
     contents = get_s3_bucket_contents(bucket_name)
     filtered_contents = list(filter(lambda x: 'extracted_images_unedited' in x, contents))
-    print('===> filtered: ', filtered_contents)
+    #print('===> filtered: ', filtered_contents)
     parent_folder = args.directory.split('/')[-1]
     filtered_contents = list(filter(lambda x: parent_folder in x, filtered_contents))
-    print('===> filtered: ', filtered_contents)
+    #print('===> filtered: ', filtered_contents)
 
     return render_template('thumbnails.html', image_names=filtered_contents)
     
@@ -36,10 +36,10 @@ def cropped_faces():
     bucket_name = args.bucket
     contents = get_s3_bucket_contents(bucket_name)
     filtered_contents = list(filter(lambda x: 'cropped_faces' in x, contents))
-    print('===> filtered: ', filtered_contents)
+    #print('===> filtered: ', filtered_contents)
     parent_folder = args.directory.split('/')[-1]
     filtered_contents = list(filter(lambda x: parent_folder in x, filtered_contents))
-    print('===> filtered: ', filtered_contents)
+    #print('===> filtered: ', filtered_contents)
     return render_template('thumbnails.html', image_names=filtered_contents)
     
 @app.route('/clustered_identities/')
@@ -47,16 +47,14 @@ def clustered_identities():
     bucket_name = args.bucket
     contents = get_s3_bucket_contents(bucket_name)
     filtered_contents = list(filter(lambda x: 'clustered_identities' in x, contents))
-    print('===> filtered: ', filtered_contents)
+    #print('===> filtered: ', filtered_contents)
     parent_folder = args.directory.split('/')[-1]
     filtered_contents = list(filter(lambda x: parent_folder in x, filtered_contents))
-    print('===> filtered: ', filtered_contents)
+    #print('===> filtered: ', filtered_contents)
     if filtered_contents == []:
         return "<b>WARNING: Clustered identities not found. Make sure to select the clustered identities checkbox on the Media Extractor page.</b>"
-
     subfolders = sorted(set([os.path.dirname(file) for file in filtered_contents]))
-    print('===> subfolders: ', subfolders)
-
+    #print('===> subfolders: ', subfolders)
     subfolder_contents = {}
     for subfolder in subfolders:
         subfolder_files = [file for file in filtered_contents if file.startswith(subfolder)]
@@ -68,7 +66,7 @@ def clustered_identities():
 def send_image(subdirectory, image_name):
     bucket_name = args.bucket
     key = f'{subdirectory}/{image_name}'
-    print(f'===> KEY: {key}')
+    #print(f'===> KEY: {key}')
     s3 = boto3.client('s3')
     response = s3.get_object(Bucket=bucket_name, Key=key)
     image_data = response['Body'].read()
@@ -93,7 +91,7 @@ def download():
             key = obj['Key']
             if parent_folder not in key:
                 continue
-            print(f'===> obj : {key}')
+            #print(f'===> obj : {key}')
             response = s3.get_object(Bucket=bucket_name, Key=key)
             image_data = response['Body'].read()
             zip_file.writestr(key, image_data)

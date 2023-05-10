@@ -76,7 +76,7 @@ def kill_processes(process_ids):
                 subprocess.check_output(['taskkill', '/F', '/PID', str(process_id)])
             elif system == 'Linux':
                 subprocess.check_output(['kill', '-9', str(process_id)])
-            print(f"Process {process_id} killed successfully!")
+            #print(f"Process {process_id} killed successfully!")
         except subprocess.CalledProcessError:
             print(f"Failed to kill process {process_id}.")
 
@@ -87,7 +87,7 @@ class MediaExtractor(object):
     """
     def __init__(self, confidence=0.90, skip_frames=0, crop_margin=1.10, image_path='output',
                  models='models', device='cpu', minimum_samples=5, eps=0.32, metric='cosine',
-                 bucket_name=None, bucket_folder='s3_download'):
+                 bucket_name='batmanplus', bucket_folder='s3_download'):
 
         # supported file types
         self.supported_filetypes = [
@@ -151,7 +151,7 @@ class MediaExtractor(object):
         # setup for upload/download to an S3 bucket
         self.bucket_name = bucket_name
         if self.bucket_name is not None:
-            print(">>>>> S3 BUCKET ENABLED <<<<<")
+            #print(">>>>> S3 BUCKET ENABLED <<<<<")
             self.s3_download = bucket_folder
             self.s3_resource = boto3.resource('s3')
             self.s3_bucket = self.s3_resource.Bucket(self.bucket_name)
@@ -918,7 +918,6 @@ class MediaExtractor(object):
             elif bbox_option == 'Extra-Wide':
                 self.crop_margin = 1.70
 
-            print('===> PROJECT: ', project_folder)
             if self.submitted and self.uploaded_files != [] and project_folder != "":
                 max_files = len(self.uploaded_files)
 
@@ -989,95 +988,90 @@ class MediaExtractor(object):
                 AgGrid(self.image_df, fit_columns_on_grid_load=True)
                 st.info(f"* Found a total of {len(self.image_df)} face(s) in media files")
 
-        # copy processed images to top-level of output folder
-        if os.path.exists(self.output_folder) and self.submitted==True:        
-            cropped_list = glob.glob(self.output_folder + '/*/cropped_faces/*.png', recursive=True)
-            extract_list = glob.glob(self.output_folder + '/*/extracted_images_unedited/*', recursive=True)
+        if project_folder != "":
+            # copy processed images to top-level of output folder
+            if os.path.exists(self.output_folder) and self.submitted==True:        
+                cropped_list = glob.glob(self.output_folder + '/*/cropped_faces/*.png', recursive=True)
+                extract_list = glob.glob(self.output_folder + '/*/extracted_images_unedited/*', recursive=True)
 
-            extract_folder = os.path.abspath(self.output_folder + self.extract_folder_name)
-            cropped_folder = os.path.abspath(self.output_folder + self.cropped_folder_name)
-                        
-            if os.path.exists(cropped_folder):
-                shutil.rmtree(cropped_folder)
-                shutil.rmtree(extract_folder)
-                os.mkdir(extract_folder)
-                os.mkdir(cropped_folder)
-            else:
-                os.mkdir(extract_folder)
-                os.mkdir(cropped_folder)
+                extract_folder = os.path.abspath(self.output_folder + self.extract_folder_name)
+                cropped_folder = os.path.abspath(self.output_folder + self.cropped_folder_name)
+                            
+                if os.path.exists(cropped_folder):
+                    shutil.rmtree(cropped_folder)
+                    shutil.rmtree(extract_folder)
+                    os.mkdir(extract_folder)
+                    os.mkdir(cropped_folder)
+                else:
+                    os.mkdir(extract_folder)
+                    os.mkdir(cropped_folder)
 
-            for file in cropped_list:
-                shutil.copy(file, cropped_folder)
+                for file in cropped_list:
+                    shutil.copy(file, cropped_folder)
+                    
+                for file in extract_list:
+                    shutil.copy(file, extract_folder)
+                    
+                # remove subfolders from output directory
+                if self.remove_subfolders:
+                    for subfolder in self.subfolders:
+                        shutil.rmtree(subfolder)
                 
-            for file in extract_list:
-                shutil.copy(file, extract_folder)
-                
-            # remove subfolders from output directory
-            if self.remove_subfolders:
-                for subfolder in self.subfolders:
-                    shutil.rmtree(subfolder)
-            
-            # cluster identities or remove cluster folder if it exists from previous run
-            if st.session_state.cluster:
-                self.faces, self.names = self.process_images(cropped_folder)
-                nclusters = self.cluster_faces(self.output_folder)
-                st.info(f"* Completed clustering identites. Found {nclusters} identities.")
-            else:
-                self.cluster_path = self.output_folder + "/clustered_identities/"
-                if os.path.exists(self.cluster_path):
-                    shutil.rmtree(self.cluster_path)
+                # cluster identities or remove cluster folder if it exists from previous run
+                if st.session_state.cluster:
+                    self.faces, self.names = self.process_images(cropped_folder)
+                    nclusters = self.cluster_faces(self.output_folder)
+                    st.info(f"* Completed clustering identites. Found {nclusters} identities.")
+                else:
+                    self.cluster_path = self.output_folder + "/clustered_identities/"
+                    if os.path.exists(self.cluster_path):
+                        shutil.rmtree(self.cluster_path)
 
-            # launch file server
-            process_ids = find_process_ids("8506")
-            if process_ids:
-                kill_processes(process_ids)
-            
-            if not st.session_state.httpserver:
-                st.session_state.httpserver = True
+                # launch file server
+                process_ids = find_process_ids("8506")
+                if process_ids:
+                    kill_processes(process_ids)
+                
                 if self.bucket_name is None:
                     cmd = ["python", "gallery.py", "--directory", os.path.abspath(self.output_folder), "--port", "8506"]
                 else:
                     cmd = ["python", "s3gallery.py", "--directory", os.path.abspath(self.output_folder), "--port", "8506", "--bucket", self.bucket_name]
-                print('===> ', os.path.abspath(self.results_folder))
-                print('===> ', cmd)
                 subprocess.Popen(cmd)
-            else:
-                print("===> File server is already running!")
-            
-            if self.bucket_name is not None:
-                # upload extracted and cropped images to an S3 bucket
-                self.s3_upload_directory(os.path.abspath(self.results_folder))
+                
+                if self.bucket_name is not None:
+                    # upload extracted and cropped images to an S3 bucket
+                    self.s3_upload_directory(os.path.abspath(self.results_folder))
 
-                # download processed data from S3 bucket
-                #self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
+                    # download processed data from S3 bucket
+                    #self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
 
-                # remove local results folder
-                shutil.rmtree(self.results_folder)
+                    # remove local results folder
+                    shutil.rmtree(self.results_folder)
 
-            # provide link to file server
-            url = "http://localhost:8506"
-            message = f"[Click here to open output folder.]({url})"
+                # provide link to file server
+                url = "http://localhost:8506"
+                message = f"[Click here to open output folder.]({url})"
 
-            def refresh():
-                components.html("<meta http-equiv='refresh' content='0'>", height=0)
+                def refresh():
+                    components.html("<meta http-equiv='refresh' content='0'>", height=0)
 
-            st.markdown("""
-            <style>
-            div.stButton > button:first-child {
-                background-color: #ff0000;
-                color:#ffffff;
-            }
-            </style>""", unsafe_allow_html=True)
+                st.markdown("""
+                <style>
+                div.stButton > button:first-child {
+                    background-color: #ff0000;
+                    color:#ffffff;
+                }
+                </style>""", unsafe_allow_html=True)
 
-            col1, col2 = st.columns([11,1])
+                col1, col2 = st.columns([11,1])
 
-            with col1:
-                st.markdown(message)
-                #st.markdown(f"Output Directory Location: **:blue[{os.path.abspath(self.output_folder)}]**")
-    
-            with col2:
-                if st.button("Clear All"):
-                    refresh()
+                with col1:
+                    st.markdown(message)
+                    #st.markdown(f"Output Directory Location: **:blue[{os.path.abspath(self.output_folder)}]**")
+        
+                with col2:
+                    if st.button("Clear All"):
+                        refresh()
             
 if __name__ == '__main__':
     #from streamlit_profiler import Profiler
