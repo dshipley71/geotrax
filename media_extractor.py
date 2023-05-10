@@ -1056,7 +1056,7 @@ class MediaExtractor(object):
 
             # provide link to file server
             url = "http://localhost:8506"
-            message = f"Click here to open output folder: [{os.path.abspath(self.output_folder)}]({url})."
+            message = f"[Click here to open output folder.]({url})"
 
             def refresh():
                 components.html("<meta http-equiv='refresh' content='0'>", height=0)
