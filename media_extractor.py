@@ -990,10 +990,13 @@ class MediaExtractor(object):
             # launch file server
             if not st.session_state.httpserver:
                 st.session_state.httpserver = True
-                cmd2 = ["python", "s3gallery.py", "--directory", os.path.abspath(self.output_folder), "--port", "8506"]
+                if self.bucket_name is None:
+                    cmd = ["python", "gallery.py", "--directory", os.path.abspath(self.output_folder), "--port", "8506"]
+                else:
+                    cmd = ["python", "s3gallery.py", "--directory", os.path.abspath(self.output_folder), "--port", "8506", "--bucket", self.bucket_name]
                 print('===> ', os.path.abspath(self.results_folder))
-                print('===> ', cmd2)
-                subprocess.Popen(cmd2)
+                print('===> ', cmd)
+                subprocess.Popen(cmd)
             else:
                 print("===> File server is already running!")
             
@@ -1003,6 +1006,9 @@ class MediaExtractor(object):
 
                 # download processed data from S3 bucket
                 #self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
+
+                # remove local results folder
+                shutil.rmtree(self.results_folder)
 
             # provide link to file server
             url = "http://localhost:8506"

@@ -21,25 +21,35 @@ def index():
 
 @app.route('/extracted_images_unedited/')
 def extracted_images_unedited():
-    bucket_name = 'batmanplus'
+    bucket_name = args.bucket
     contents = get_s3_bucket_contents(bucket_name)
     filtered_contents = list(filter(lambda x: 'extracted_images_unedited' in x, contents))
     print('===> filtered: ', filtered_contents)
+    parent_folder = args.directory.split('/')[-1]
+    filtered_contents = list(filter(lambda x: parent_folder in x, filtered_contents))
+    print('===> filtered: ', filtered_contents)
+
     return render_template('thumbnails.html', image_names=filtered_contents)
     
 @app.route('/cropped_faces/')
 def cropped_faces():
-    bucket_name = 'batmanplus'
+    bucket_name = args.bucket
     contents = get_s3_bucket_contents(bucket_name)
     filtered_contents = list(filter(lambda x: 'cropped_faces' in x, contents))
+    print('===> filtered: ', filtered_contents)
+    parent_folder = args.directory.split('/')[-1]
+    filtered_contents = list(filter(lambda x: parent_folder in x, filtered_contents))
     print('===> filtered: ', filtered_contents)
     return render_template('thumbnails.html', image_names=filtered_contents)
     
 @app.route('/clustered_identities/')
 def clustered_identities():
-    bucket_name = 'batmanplus'
+    bucket_name = args.bucket
     contents = get_s3_bucket_contents(bucket_name)
     filtered_contents = list(filter(lambda x: 'clustered_identities' in x, contents))
+    print('===> filtered: ', filtered_contents)
+    parent_folder = args.directory.split('/')[-1]
+    filtered_contents = list(filter(lambda x: parent_folder in x, filtered_contents))
     print('===> filtered: ', filtered_contents)
     if filtered_contents == []:
         return "<b>WARNING: Clustered identities not found. Make sure to select the clustered identities checkbox on the Media Extractor page.</b>"
@@ -47,7 +57,7 @@ def clustered_identities():
 
 @app.route('/<path:subdirectory>/<path:image_name>')
 def send_image(subdirectory, image_name):
-    bucket_name = 'batmanplus'
+    bucket_name = args.bucket
     key = f'{subdirectory}/{image_name}'
     print(f'===> KEY: {key}')
     s3 = boto3.client('s3')
@@ -60,9 +70,11 @@ def send_image(subdirectory, image_name):
 
 @app.route('/download/')
 def download():
-    bucket_name = 'batmanplus'
+    bucket_name = args.bucket
     s3 = boto3.client('s3')
     objects = s3.list_objects_v2(Bucket=bucket_name)['Contents']
+
+    parent_folder = args.directory.split('/')[-1]
     
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
     zip_filename = f'media_extractor_images_{timestamp}.zip'
@@ -70,6 +82,9 @@ def download():
     with zipfile.ZipFile(zip_filename, 'w') as zip_file:
         for obj in objects:
             key = obj['Key']
+            if parent_folder not in key:
+                continue
+            print(f'===> obj : {key}')
             response = s3.get_object(Bucket=bucket_name, Key=key)
             image_data = response['Body'].read()
             zip_file.writestr(key, image_data)
@@ -85,6 +100,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--port', type=int, default=8506, help='Port number')
     parser.add_argument('-d', '--directory', type=str, default='.', help='Parent directory location')
+    parser.add_argument('-b', '--bucket', type=str, default='.', help='S3 bucket name')
     args = parser.parse_args()
+    print(args)
 
     app.run(host="0.0.0.0", debug=True, port=args.port)
