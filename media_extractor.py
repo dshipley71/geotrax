@@ -929,7 +929,7 @@ class MediaExtractor(object):
                     uploaded_file = self.uploaded_files[i] 
 
                     # split filename to get extension and remove the '.'
-                    file_type = os.path.splitext(uploaded_file.name)[1][1:]
+                    file_type = os.path.splitext(uploaded_file.name)[1][1:].lower()
 
                     if file_type in ['doc', 'dot']:
                         self.not_extract(uploaded_file)
