@@ -1015,7 +1015,10 @@ class MediaExtractor(object):
                 # remove subfolders from output directory
                 if self.remove_subfolders:
                     for subfolder in self.subfolders:
-                        shutil.rmtree(subfolder)
+                        try:
+                            shutil.rmtree(subfolder)
+                        except:
+                            print('WARNING: Could not remove subfolder {subfolder}')
                 
                 # cluster identities or remove cluster folder if it exists from previous run
                 if st.session_state.cluster:
@@ -1046,7 +1049,7 @@ class MediaExtractor(object):
                     #self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
 
                     # remove local results folder
-                    shutil.rmtree(self.results_folder)
+#                    shutil.rmtree(self.results_folder)
 
                 # provide link to file server
                 url = "http://localhost:8506"
