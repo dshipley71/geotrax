@@ -19,6 +19,7 @@ dependencies:                 # EVERYTHING UNDER THIS IS INSTALLED BY CONDA
   - colorlog
   - dface
   - flask
+  - loguru
   - mtcnn                      
   - opencv-contrib-python-headless
   - piexif  

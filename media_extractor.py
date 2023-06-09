@@ -20,6 +20,10 @@ import subprocess
 import platform
 import boto3
 
+from loguru import logger
+from streamlit import runtime
+from streamlit.runtime.scriptrunner import get_script_run_ctx
+
 from stqdm import stqdm
 from st_aggrid import AgGrid
 from zipfile import ZipFile
@@ -42,7 +46,54 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 #   3 = INFO, WARNING, and ERROR messages are not printed
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+# Configure logging
+logger.add(sink="media_extractor.log",
+           mode="a",
+           rotation="00:00",
+           retention="30 days",
+           level="INFO",
+           backtrace=True,
+           diagnose=True)
+
+def get_remote_ip() -> str:
+    """
+    Retrieve the remote IP address of a client making a request.
+
+    This function attempts to obtain the script run context and retrieves the
+    session information associated with the session ID from the runtime. If
+    successful, it returns the remote IP address from the session information.
+    In case of any errors or if the required information is not available, it
+    returns None.
+    """
+
+    try:
+        ctx = get_script_run_ctx()
+        if ctx is None:
+            return None
+
+        session_info = runtime.get_instance().get_client(ctx.session_id)
+        if session_info is None:
+            return None
+    except Exception as e:
+        return None
+
+    return session_info.request.remote_ip
+
 def find_process_ids(port):
+    """
+    Find the process IDs associated with a given port number.
+
+    This function searches for process IDs that are listening on the specified
+    port. It checks the system platform and performs different operations based
+    on the platform. If the system is Windows, it uses the 'netstat' command to
+    gather information about TCP connections and filters for the port and
+    'LISTENING' status. On Linux systems, it utilizes the 'lsof' command to
+    obtain information about TCP connections and extracts the process ID
+    associated with the port. The function returns a list of process IDs found.
+
+    Note: This function requires the 'subprocess' module and appropriate
+          permissions to execute the system commands.
+    """
     process_ids = []
     system = platform.system()
     if system == 'Windows':
@@ -69,6 +120,21 @@ def find_process_ids(port):
     return process_ids
 
 def kill_processes(process_ids):
+    """
+    Kill the specified process IDs.
+
+    This function iterates over a list of process IDs and attempts to terminate
+    each process. It checks the system platform and performs different operations
+    based on the platform. On Windows systems, it uses the 'taskkill' command
+    with the '/F' flag to forcefully terminate the process using its ID. On Linux
+    systems, it uses the 'kill' command with the '-9' signal to forcefully
+    terminate the process with the given ID. If the termination is successful,
+    the function continues to the next process ID. If an error occurs while
+    attempting to terminate a process, an error message is printed.
+
+    Note: This function requires the 'subprocess' module and appropriate
+          permissions to execute the system commands.
+    """
     system = platform.system()
     for process_id in process_ids:
         try:
@@ -184,9 +250,21 @@ class MediaExtractor(object):
         # can be used with both CPU and GPU.
         # Reference: https://github.com/deepware/dface
         self.facenet = FaceNet(self.device, model=self.model_path + '/facenet.pt')
-
+        
     def s3_upload_directory(self, path):
         """
+        Upload a directory and its contents to an S3 bucket.
+
+        This function recursively walks through the specified directory path
+        and uploads each file to the configured S3 bucket. It utilizes the
+        `os.walk()` function to traverse the directory tree and obtain the list
+        of files. For each file found, it constructs the file path and the
+        corresponding S3 bucket path relative to the specified directory.
+        Finally, it uploads the file to the S3 bucket using the `upload_file()`
+        method of the `s3_bucket` object.
+
+        Note: This function requires the `os` module and a configured S3 bucket
+              connection (`s3_bucket`) to perform the upload.
         """
         for root, dirs, files in os.walk(path):
             for filename in files:
@@ -196,6 +274,18 @@ class MediaExtractor(object):
 
     def s3_download_directory(self, remote_directory_name, download_directory):
         """
+        Download a directory and its contents from an S3 bucket.
+
+        This function downloads the contents of a remote directory from the
+        configured S3 bucket to a local download directory. It utilizes the
+        `s3_bucket.objects.filter()` method to retrieve objects within the
+        specified remote directory. For each object found, it creates the
+        corresponding local directory (if it doesn't exist) and downloads the
+        file to the local path using the `download_file()` method of the
+        `s3_bucket` object.
+
+        Note: This function requires the `os` module and a configured S3 bucket
+              connection (`s3_bucket`) to perform the download.
         """
         for obj in self.s3_bucket.objects.filter(Prefix=remote_directory_name):
             # create directory if it does not exist
@@ -209,7 +299,24 @@ class MediaExtractor(object):
 
     def not_extract(self, file):
         """
-        Unsupported file type
+        Handle unsupported file types.
+
+        This function is called when an unsupported file type is encountered. It
+        extracts relevant information about the file, such as the file name, file
+        type (determined using the `mime` module), and file size. It appends this
+        metadata to the `extract_df` DataFrame for later reference.
+
+        The function also generates informative messages based on the file extension
+        and displays them using the `st.info()` function. Specific messages are
+        provided for certain older file formats, such as .doc, .dot, .ppt, .pot, .xls,
+        and .xlt, instructing the user to convert them to a supported format (docx,
+        pdf, pptx, xlsx) using the respective Microsoft Office applications. For other
+        unsupported file types, a generic message is displayed indicating that the
+        file is not supported.
+
+        Note: This function requires the `os` and `mime` modules, as well as a
+              DataFrame (`extract_df`) and the ability to display messages (`st.info()`)
+              using a suitable user interface framework.
         """
         file_name, file_ext = os.path.splitext(file.name)
         file_type = self.mime.from_buffer(file.read())
@@ -238,8 +345,33 @@ class MediaExtractor(object):
                 
     def mso_extract(self, file, location):
         """
-        Extract Microsoft Office documents from 2004 to present. Current
-        format is a zip file containing various subfolders.
+        Extract Microsoft Office documents from 2004 to the present.
+
+        This function is designed to extract various files and media content from
+        Microsoft Office documents of different formats. It first reads enough
+        data from the file to determine its MIME type using the `mime` module.
+        It also retrieves the file size.
+
+        The function then proceeds to extract the contents of the Microsoft
+        Office document, which is expected to be in the form of a zip file with
+        various subfolders. It uses the `ZipFile` class to extract the files to
+        the specified `location`.
+
+        Depending on the file type (doc, ppt, xl), the function handles specific
+        subfolders (word, ppt, xl) containing media files (images) and renames
+        and moves them to a destination subfolder. It removes the original
+        subfolders (word, ppt, xl) and performs cleanup by removing certain
+        directories and XML files.
+
+        Metadata about the extracted files, such as the file name, type, size,
+        and the count of extracted files, is added to the `extract_df` DataFrame
+        for later reference.
+
+        The function returns the destination subfolder path where the extracted
+        files are located.
+
+        Note: This function requires the `os`, `shutil`, `zipfile`, and `glob`
+              modules, as well as a DataFrame (`extract_df`) for storing metadata.
         """
         # read enough of the data to determine the mime typ of the file
         file_type = self.mime.from_buffer(file.read())
@@ -335,7 +467,38 @@ class MediaExtractor(object):
 
     def zip_extract(self, file, location):
         """
-        https://docs.python.org/3/library/zipfile.html#module-zipfile
+        Extract files from a ZIP archive.
+
+        This function extracts files from a ZIP archive. It accepts a file
+        object and a location where the extracted files should be stored. The
+        function begins by gathering information about the ZIP archive, such as
+        the file name and size.
+
+        Using the `ZipFile` class, the function iterates through each item in
+        the ZIP archive. It determines the file type based on the file extension.
+        For certain older file formats (doc, dot, ppt, pot, xls, xlt), it
+        displays an informative message instructing the user to convert them to a
+        supported format using the respective Microsoft Office applications.
+
+        For specific file types (pdf, docx, docm, dotm, dotx, xlsx, xlsb, xlsm,
+        xltm, xltx, potx, ppsm, ppsx, pptm, pptx, potm), the function calls
+        corresponding extraction methods (`pdf_extract()`, `mso_extract()`, etc.)
+        to handle the extraction and processing of the file.
+
+        For file types related to media content (mp4, webm, avi, wmv, jpeg, jpg,
+        png, gif, bmp, tiff), it calls appropriate methods (`vid_extract()`,
+        `img_extract()`, etc.) to handle the extraction and processing of the media
+        content.
+
+        The function updates the `extract_df` DataFrame with metadata about the
+        extracted files, such as the file name, type, size, and the count of extracted
+        files.
+
+        Note: This function requires the `os` and `zipfile` modules, as well as other
+        extraction methods (`pdf_extract()`, `mso_extract()`, etc.) and a DataFrame
+        (`extract_df`) for storing metadata.
+
+        Reference: https://docs.python.org/3/library/zipfile.html#module-zipfile
         """
         # get file stats
         file_name = os.path.basename(file.name)
@@ -398,7 +561,34 @@ class MediaExtractor(object):
 
     def pdf_extract(self, file, location):
         """
-        https://pymupdf.readthedocs.io/en/latest/index.html
+        Extract images from a PDF file.
+
+        This function extracts images from a PDF file using the PyMuPDF library.
+        It accepts a file object and a location where the extracted images
+        should be stored. The function first determines the MIME type of the
+        file and retrieves its size.
+
+        The function then reads the entire file into memory and opens it as a
+        PDF file using the PyMuPDF library. It creates a subfolder path based
+        on the file name and the specified `extract_folder_name`.
+
+        For each page in the PDF, the function iterates through each image on
+        that page. It saves the images as PNG files in the designated subfolder.
+        If an image is in the CMYK color space, it converts it to the RGB color
+        space before saving.
+
+        The function updates the `extract_df` DataFrame with metadata about the
+        extracted images, such as the file name, type, size, and the count of
+        extracted images.
+
+        The function returns the path to the subfolder where the extracted
+        images are stored.
+
+        Note: This function requires the `os` and `fitz` modules from the
+              PyMuPDF library, as well as a DataFrame (`extract_df`) for
+              storing metadata.
+
+        Reference: https://pymupdf.readthedocs.io/en/latest/index.html
         """
         # determine the MIME type of the file
         file_type = self.mime.from_buffer(file.read())
@@ -449,6 +639,34 @@ class MediaExtractor(object):
 
     def vid_extract(self, file, location):
         """
+        Extract frames from a video file.
+
+        This function extracts frames from a video file using the OpenCV
+        library. It accepts a file object and a location where the extracted
+        frames should be stored. The function first creates a subfolder path
+        based on the file name and the specified `extract_folder_name`.
+
+        The function copies the buffer content to the output folder and
+        retrieves the file name, type, and size. It initializes a video frame
+        capture using the OpenCV `VideoCapture` class and determines the total
+        number of frames in the video.
+
+        For each frame in the video, the function reads the frame using the
+        `read()` method of `VideoCapture` and writes the image to the output
+        path as a PNG file. The number of frames extracted depends on the
+        `skip_frames` parameter, which determines the frame skipping interval.
+
+        The function updates the `extract_df` DataFrame with metadata about the
+        extracted frames, such as the file name, type, size, and the count of
+        extracted frames.
+
+        Finally, the function releases the video capture, removes the temporary
+        video file, and returns the path to the subfolder where the extracted
+        frames are stored.
+
+        Note: This function requires the `os`, `shutil`, `cv2`, and `tqdm`
+              modules, as well as a DataFrame (`extract_df`) for storing
+              metadata.
         """
         # create extraction folder
         subfolder = os.path.splitext(file.name)[0] + self.extract_folder_name
@@ -507,6 +725,22 @@ class MediaExtractor(object):
     
     def img_extract(self, file, location):
         """
+        Extract an image file.
+
+        This function extracts an image file. It accepts a file object and a
+        location where the extracted image should be stored. The function retrieves
+        the file name, type, and size. It creates a subfolder path based on the
+        file name and the specified `extract_folder_name`.
+
+        The function updates the `extract_df` DataFrame with metadata about the
+        extracted image, such as the file name, type, size, and the count of
+        extracted images.
+
+        Finally, the function writes the image file to the output path and returns
+        the path to the subfolder where the extracted image is stored.
+
+        Note: This function requires the `os`, `shutil`, and `mime` modules, as
+              well as a DataFrame (`extract_df`) for storing metadata.
         """
         file_name, ext = os.path.splitext(os.path.basename(file.name))
         file_type = self.mime.from_buffer(file.read())
@@ -537,10 +771,29 @@ class MediaExtractor(object):
         return imgpath
 
     def crop_face(self, img, box, margin=1):
-        """
-        Crops facial images based on bounding box. A margin greater than one increases
-        the size of the bounding box; less than one decreases the bounding box; and
-        equal to one would be the bounding box size.
+        """Crop a facial image based on a bounding box.
+
+        This function crops a facial image based on a given bounding box. The
+        `img` parameter represents the input image, and the `box` parameter
+        contains the coordinates of the bounding box in the format (x1, y1,
+        x2, y2). The `margin` parameter controls the size of the resulting
+        cropped image.
+
+        A margin greater than 1 increases the size of the bounding box,
+        resulting in a larger cropped image. A margin less than 1 decreases
+        the bounding box size, resulting in a smaller cropped image. A margin
+        equal to 1 keeps the bounding box size unchanged.
+
+        The function calculates the size of the bounding box based on the
+        maximum difference between the x and y coordinates of the box,
+        multiplied by the margin. It then determines the center coordinates
+        of the box and adjusts the bounding box coordinates accordingly.
+
+        Finally, the function crops the input image using the adjusted bounding
+        box coordinates and returns the resulting cropped image as a NumPy array.
+
+        Note: This function requires the `PIL` (Python Imaging Library) module
+              and the `numpy` module for image manipulation.
         """
         x1, y1, x2, y2 = box
         size = int(max(x2-x1, y2-y1) * margin)
@@ -558,7 +811,27 @@ class MediaExtractor(object):
         
     def rotate_upside_down_face(self, image, bbox, keypoints):
         """
-        Determine if the face is upside down
+        Determine if a face is upside down and rotate it if necessary.
+
+        This function analyzes the facial landmarks and determines if the face
+        is upside down. It accepts an image, bounding box coordinates (`bbox`),
+        and facial keypoints (`keypoints`) as input. The function calculates the
+        angle of the face based on the landmarks.
+
+        The nose, chin, and mouth points are extracted from the facial keypoints.
+        The function calculates the lengths of the sides of the triangle formed
+        by these landmarks. It then applies the law of cosines to calculate the
+        angle between two sides of the triangle.
+
+        If the angle is greater than 90 degrees or less than -90 degrees, it
+        indicates that the face is upside down. In such cases, the function
+        rotates the image by 180 degrees using the OpenCV library.
+
+        The function returns the rotated image if the face is upside down, or the
+        original image if it is not.
+
+        Note: This function requires the `math` and `cv2` modules for calculations
+              and image manipulation.
         """
         import math
         # get landmarks of the face
@@ -606,7 +879,28 @@ class MediaExtractor(object):
 
     def face_align(self, image, keypoints):
         """
-        Align a face such the eyes are on a horizontal plane.
+        Align a face so that the eyes are on a horizontal plane.
+
+        This function aligns a face image based on the positions of the left and
+        right eye keypoints. It accepts an image and facial keypoints as input.
+        The function calculates the angle of rotation needed to align the eyes on
+        a horizontal plane.
+
+        The vertical distance (`dY`) between the y-coordinates of the right and
+        left eye keypoints is calculated, as well as the horizontal distance
+        (`dX`) between their x-coordinates. The `arctan2` function is then used
+        to determine the angle in radians between the horizontal axis and the
+        line connecting the eyes.
+
+        The image is rotated using the OpenCV `getRotationMatrix2D` function with
+        the calculated angle and no scaling. The center of the image is used as
+        the rotation center. The rotated image is obtained by applying the
+        rotation matrix to the image using `warpAffine`.
+
+        The function returns the aligned face image.
+
+        Note: This function requires the `numpy` module (`np`) for mathematical
+              calculations and the OpenCV library (`cv2`) for image manipulation.
         """
         dY = keypoints['right_eye'][1] - keypoints['left_eye'][1]
         dX = keypoints['right_eye'][0] - keypoints['left_eye'][0]
@@ -628,6 +922,32 @@ class MediaExtractor(object):
 
     def __get_media(self, output_folder):
         """
+        Retrieve media information from a folder.
+
+        This function retrieves information about media files (images) in a
+        specified folder. It accepts an output folder path as input. The
+        function iterates through the files in the folder and extracts
+        relevant metadata.
+
+        For each image file, the function attempts to open the file using the
+        `PIL` (Python Imaging Library) module. It retrieves metadata such as
+        the file size, height, width, format, and mode of the image. Additionally,
+        it computes the average hash value of the image using the OpenCV
+        `img_hash.averageHash` function.
+
+        The extracted metadata is stored in the `media_df` DataFrame, which keeps
+        track of the media information.
+
+        Note: This function requires the `os`, `Img` (PIL), `cv2`, and `pandas`
+              modules for file operations, image handling, image hashing, and
+              data storage, respectively. Additionally, the function includes
+              commented out code related to EXIF data extraction using the
+              `pexif` library.
+        
+        Addendum: The `pexif` code is functional but was commented out for
+                  90-day customer testing on a CentOS7 linux OS EC2 instance
+                  for cloud support. This is fully functional using Ubuntu
+                  linux.
         """
         try:
             files = os.listdir(output_folder)
@@ -672,17 +992,39 @@ class MediaExtractor(object):
         
     def __get_images(self, output_folder):
         """
-        The detector returns a list of JSON objects. Each JSON object contains
-        three main keys:
-        - 'box' is formatted as [x, y, width, height]
-        - 'confidence' is the probability for a bounding box to be matching a face
-        - 'keypoints' are formatted into a JSON object with the keys:
-            * 'left_eye',
-            * 'right_eye',
-            * 'nose',
-            * 'mouth_left',
-            * 'mouth_right'
-          Each keypoint is identified by a pixel position (x, y).
+        Retrieve and process facial images from a specified folder.
+
+        This function processes facial images in a specified folder using a
+        face detection model. It accepts an output folder path as input. The
+        function performs the following steps:
+
+        1.  Retrieve a list of media files (images) in the output folder.
+        2.  Initialize counters and create a destination folder for the cropped
+            face images.
+        3.  Iterate through the media files and perform face detection using a
+            face detection model.
+        4.  Filter the detected faces based on a confidence threshold.
+        5.  For each detected face, extract the bounding box coordinates, facial
+            keypoints, and inter-pupillary distance (IPD).
+        6.  Draw bounding boxes and keypoints on the image for visualization
+            purposes.
+        7.  Crop the face image by adjusting the bounding box size based on a
+            specified margin.
+        8.  Align the cropped face image based on the positions of the eyes.
+        9.  Export the cropped face image to a destination folder and calculate
+            an image hash.
+        10. Store metadata about the detected face, including the image name,
+            bounding box coordinates, dimensions, keypoints, IPD, confidence
+            score, media file name, and image hash.
+        11. Handle exceptions and display errors, if any.
+
+        The extracted metadata is stored in the `image_df` DataFrame for further
+        analysis.
+
+        Note: This function requires the `glob`, `cv2`, `os`, `shutil`, `pandas`,
+              and `tqdm` modules, as well as a face detection model, image
+              manipulation functions (`crop_face` and `face_align`), and the
+              `image_df` DataFrame for storing metadata.
         """
         media_files = glob.glob(output_folder + '*.*')
 
@@ -770,6 +1112,31 @@ class MediaExtractor(object):
                 st.error(e)
 
     def process_images(self, filepath):
+        """
+        Process images for clustering.
+
+        This function processes images in a specified file path for clustering
+        purposes. It accepts a file path as input. The function performs the
+        following steps:
+
+        1. Retrieve a list of image file names in the specified file path using
+           the `glob` module.
+        2. Iterate through the image file names and perform the following operations
+           for each image:
+           - Load the image using OpenCV (`cv2`).
+           - Detect the face in the image using a face detection model (`detector`).
+           - If a face is detected, crop the face from the image based on the bounding
+             box coordinates.
+           - Resize the cropped face to a fixed size of 224x224 pixels.
+           - Store the cropped face in a list of faces (`faces`) and the corresponding
+             image file name in a list of names (`names`).
+        3. Return the lists of faces and names.
+
+        Note: This function requires the `glob` and `cv2` modules, as well as a face
+              detection model (`detector`). Additionally, the function assumes that
+              the face detection model has been properly initialized and is accessible
+              within the class.
+        """
         faces = []
         names = []
 
@@ -808,8 +1175,31 @@ class MediaExtractor(object):
         
     def cluster_faces(self, filepath):
         """
-        Function to form clusters using the DBSCAN clustering algorithm
+        Cluster faces using the DBSCAN clustering algorithm.
+
+        This function clusters faces using the Density-Based Spatial Clustering
+        of Applications with Noise (DBSCAN) algorithm. It accepts a file path
+        as input. The function performs the following steps:
+
+        1. Create a directory to store the clustered identities based on the
+           specified file path.
+        2. Extract the facial feature vectors (512 points) using a facial
+           recognition model (`facenet`).
+        3. Cluster the identities using the DBSCAN algorithm with specified
+           parameters (eps, min_samples, metric, n_jobs).
+        4. Assign labels to the faces based on the clustering results.
+        5. Create subfolders in the cluster directory for each cluster ID.
+        6. Move the corresponding face images to the respective cluster subfolders.
+        7. Rename the cluster folder for unclustered identities, if applicable.
+        8. Return the number of clusters (i.e., the maximum label + 1).
+
+        Note: This function requires the `os`, `shutil`, `DBSCAN`, and `tqdm`
+              modules, as well as a facial recognition model (`facenet`).
+              Additionally, the function assumes that the facial recognition
+              model has been properly initialized and is accessible within the
+              class.
         """
+
         # create cluster directory
         self.cluster_path = filepath + "/clustered_identities/"
         if os.path.exists(self.cluster_path):
@@ -853,6 +1243,37 @@ class MediaExtractor(object):
         
     def run(self):
         """
+        Run the Media Extractor application.
+
+        This function is responsible for running the Media Extractor application.
+        It sets the configuration for the Streamlit page, handles user inputs,
+        processes the media files, displays the metadata tables, and performs
+        additional operations based on user selections.
+
+        The function performs the following steps:
+
+        1.  Set the Streamlit page configuration, including the layout, sidebar
+            state, page title, and page icon.
+        2.  Display the Media Input section, allowing the user to upload media files.
+        3.  Display the Media Output section, allowing the user to enter a folder
+            name to store the extracted images.
+        4.  Process the uploaded files and extract media content based on their types
+            (e.g., images, videos, documents).
+        5.  Display the metadata tables for documents, media, and images.
+        6.  Handle additional options such as removing subfolders, clustering
+            identities, and adjusting the bounding box size.
+        7.  Copy processed images to the top-level of the output folder and perform
+            further operations if applicable, such as clustering identities.
+        8.  Launch the file server to serve the output folder contents and provide a
+            link to access the output folder.
+        9.  If an S3 bucket name is provided, upload the extracted and cropped images
+            to the bucket.
+        10. Provide a button to clear all results and refresh the page.
+
+        Note: This function assumes the availability of various modules and dependencies,
+              such as Streamlit, OpenCV, NumPy, Pandas, and scikit-learn. Additionally,
+              it references other class methods and assumes the existence of specific
+              variables and file paths within the class.
         """
         # set streamlit page defaults
         st.set_page_config(
@@ -862,22 +1283,20 @@ class MediaExtractor(object):
             page_icon = ':eyes:' # https://emojipedia.org/shortcodes/
         )
 
-        st.session_state.httpserver = False
-        
-        #if "disabled" not in st.session_state:
-        #    st.session_state.disabled = False
-            
-        #def disable():
-        #    st.session_state.disabled = True
-            
-        #st.write(st.session_state.subfolder)
-        #if "subfolder" not in st.session_state:
-        #    st.session_state.subfolder = ""
+        st.session_state.launch = False
+
+        if not st.session_state.launch:
+            logger.debug(f'Media Extractor application launched by {get_remote_ip()}')
+            st.session_state.launch = True
             
         with st.form("my-form", clear_on_submit=False):
             # set title and format
             st.markdown(""" <style> .font {font-size:60px; font-family: 'Sans-serif'; text-align:center; color: blue;} </style> """, unsafe_allow_html=True)
             st.markdown('<p class="font">Media Extractor</p>', unsafe_allow_html=True)
+            
+            # get remote ip address - an ip address of "ip: ::1" means it is a local ip
+            st.markdown(f'Connection from remote ip: {get_remote_ip()}')
+            
             st.subheader('Media Input')
             self.uploaded_files = st.file_uploader("Choose a media file (image, video, or document):", type=self.supported_filetypes, accept_multiple_files=True)
 
@@ -967,6 +1386,12 @@ class MediaExtractor(object):
 
                     else:
                         self.not_extract(uploaded_file)
+
+                    # logging processed data
+                    try:
+                        logger.info(f"IP Address: {get_remote_ip()} | Input File: {self.uploaded_files[i]} | Output Folder: {project_folder}' | Extracted Files Count: {self.extract_df['Count'].sum()} | Cropped Files Count: {len(self.image_df)}")
+                    except:
+                        pass
                         
                 st.success('Process completed')
                         
@@ -987,7 +1412,7 @@ class MediaExtractor(object):
                 st.subheader("Images")
                 AgGrid(self.image_df, fit_columns_on_grid_load=True)
                 st.info(f"* Found a total of {len(self.image_df)} face(s) in media files")
-
+                
         if project_folder != "":
             # copy processed images to top-level of output folder
             if os.path.exists(self.output_folder) and self.submitted==True:        
@@ -1025,6 +1450,7 @@ class MediaExtractor(object):
                     self.faces, self.names = self.process_images(cropped_folder)
                     nclusters = self.cluster_faces(self.output_folder)
                     st.info(f"* Completed clustering identites. Found {nclusters} identities.")
+                    logger.info(f"Clustered identites - found {nclusters} identities.")
                 else:
                     self.cluster_path = self.output_folder + "/clustered_identities/"
                     if os.path.exists(self.cluster_path):
@@ -1077,9 +1503,13 @@ class MediaExtractor(object):
                         refresh()
             
 if __name__ == '__main__':
+    # run profiler - profile results will appear at the bottome of the media extractor page
     #from streamlit_profiler import Profiler
     #with Profiler():
+    #    mx = MediaExtractor()    
+    #    mx.run()
+
+    # run without profiling
     mx = MediaExtractor()    
     mx.run()
-
 

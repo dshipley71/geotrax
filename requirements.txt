@@ -4,6 +4,7 @@ botocore==1.29.86
 colorlog==6.7.0
 dface==1.1.5
 flask==2.2.3
+loguru==0.7.0
 mtcnn==0.1.1
 numpy==1.24.2
 opencv-contrib-python-headless==4.7.0.72

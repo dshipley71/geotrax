@@ -1,0 +1,4 @@
+output
+s3_download
+*.zip
+*.log
