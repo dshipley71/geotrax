@@ -47,12 +47,12 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 # Configure logging
-logger.add(sink="media_extractor.log",
+logger.add(sink="media_extractor_{time:YYYYMMDD}.log",
            mode="a",
-           rotation="00:00",
-           retention="30 days",
-           level="INFO",
-           backtrace=True,
+           rotation="00:00",      # new log created daily
+           retention="30 days",   # keep logs 30 days
+           level="INFO",          # record log level rom INFO and above
+           backtrace=True,        # logging exceptions
            diagnose=True)
 
 def get_remote_ip() -> str:
@@ -105,7 +105,8 @@ def find_process_ids(port):
                     process_id = int(line.split()[-1])
                     process_ids.append(process_id)
         except subprocess.CalledProcessError:
-            pass
+            logger.warning("Failed to find file server process id. If this is the initial launch of Media Extractor, then file server does not exist yet.")
+            
     elif system == 'Linux':
         try:
             output = subprocess.check_output(['lsof', '-i', f'tcp:{port}'])
@@ -115,7 +116,7 @@ def find_process_ids(port):
                     process_id = int(line.split()[1])
                     process_ids.append(process_id)
         except subprocess.CalledProcessError:
-            pass
+            logger.warning("Failed to find file server process id. If this is the initial launch of Media Extractor, then file server does not exist yet.")
 
     return process_ids
 
@@ -144,7 +145,8 @@ def kill_processes(process_ids):
                 subprocess.check_output(['kill', '-9', str(process_id)])
             #print(f"Process {process_id} killed successfully!")
         except subprocess.CalledProcessError:
-            print(f"Failed to kill process {process_id}.")
+            logger.warning(f"Failed to kill process id {process_id}")
+            #print(f"Failed to kill process {process_id}.")
 
 class MediaExtractor(object):
     """
@@ -217,12 +219,13 @@ class MediaExtractor(object):
         # setup for upload/download to an S3 bucket
         self.bucket_name = bucket_name
         if self.bucket_name is not None:
+            logger.info("S3 bucket enabled")
             #print(">>>>> S3 BUCKET ENABLED <<<<<")
             self.s3_download = bucket_folder
             self.s3_resource = boto3.resource('s3')
             self.s3_bucket = self.s3_resource.Bucket(self.bucket_name)
         else:
-            pass
+            logger.info("S3 Bucket disabled")
             #print("<<<<< S3 BUCKET DISABLED >>>>>")
 
         self.device           = device                      # 'cpu' or 'cuda'
@@ -554,7 +557,8 @@ class MediaExtractor(object):
                         self.__get_images(imgpath)
 
                 else:
-                    pass
+                    logger.warning(f"File type `{file_type}` not supported")
+                    #pass
 
         metadata = {'File': file_name, 'Type': 'application/zip', 'Size': file_size, 'Count': len(thezip.infolist())}
         self.extract_df = self.extract_df.append(metadata, ignore_index=True)
@@ -832,6 +836,8 @@ class MediaExtractor(object):
 
         Note: This function requires the `math` and `cv2` modules for calculations
               and image manipulation.
+              
+        Addendum: THIS FUNCTION STILL NEEDS TO BE FULLY TESTED.
         """
         import math
         # get landmarks of the face
@@ -957,6 +963,7 @@ class MediaExtractor(object):
                 try:
                     im = Img.open(imgfile)
                 except Exception as e:
+                    logger.exception(e)
                     st.error(e)
                     break
 
@@ -988,6 +995,7 @@ class MediaExtractor(object):
                             'Hash': cropped_hash}
                 self.media_df = self.media_df.append(metadata, ignore_index=True)
         except:
+            logger.exception("Get Media Error")
             pass
         
     def __get_images(self, output_folder):
@@ -1109,6 +1117,7 @@ class MediaExtractor(object):
                         self.image_df = self.image_df.append(metadata, ignore_index=True)
 
             except Exception as e:
+                logger.exception(e)
                 st.error(e)
 
     def process_images(self, filepath):
@@ -1158,7 +1167,8 @@ class MediaExtractor(object):
             try:
                 results = self.detector.detect_faces(image)
             except:
-                print(f'Error: {filename} is an invalid image')
+                logger.warning(f"File {filename} is an invalid facial image")
+                #print(f'Error: {filename} is an invalid image')
                 continue
 
             if len(results) > 0:
@@ -1391,7 +1401,8 @@ class MediaExtractor(object):
                     try:
                         logger.info(f"IP Address: {get_remote_ip()} | Input File: {self.uploaded_files[i]} | Output Folder: {project_folder}' | Extracted Files Count: {self.extract_df['Count'].sum()} | Cropped Files Count: {len(self.image_df)}")
                     except:
-                        pass
+                        logger.exception("Failed to log data")
+                        #pass
                         
                 st.success('Process completed')
                         
