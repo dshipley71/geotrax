@@ -1313,7 +1313,7 @@ class MediaExtractor(object):
             st.subheader('Media Output')
             project_folder = st.text_input('Enter folder name to store images:', value="", key="subfolder")
             
-            self.output_folder = os.path.abspath(self.results_folder + st.session_state.subfolder)
+            self.output_folder = os.path.abspath(self.results_folder + project_folder) #st.session_state.subfolder)
             self.extract_folder_name = '/extracted_images_unedited/'
             self.detection_folder_name = '/detection/'
             self.cropped_folder_name = '/cropped_faces/'
@@ -1486,7 +1486,10 @@ class MediaExtractor(object):
                     #self.s3_download_directory(st.session_state.subfolder, self.s3_download + "/" + st.session_state.subfolder)
 
                     # remove local results folder
-#                    shutil.rmtree(self.results_folder)
+                    try:
+                        shutil.rmtree(self.results_folder)
+                    except:
+                        logger.warning(f'Could not remove output folder {os.path.abspath(self.results_folder)}')
 
                 # provide link to file server
                 url = "http://localhost:8506"

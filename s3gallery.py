@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime
 from flask import Flask, render_template, send_from_directory, send_file, after_this_request, make_response
 import boto3
+import tempfile
 
 app = Flask(__name__, static_folder='assets')
 
@@ -78,30 +79,34 @@ def send_image(subdirectory, image_name):
 @app.route('/download/')
 def download():
     bucket_name = args.bucket
-    s3 = boto3.client('s3')
-    objects = s3.list_objects_v2(Bucket=bucket_name)['Contents']
+    subdirectory = args.directory.split('/')[-1]
+    print(f'1. ===> {subdirectory}')
+    
+    # Create a temporary directory to store the zip file
+    with tempfile.TemporaryDirectory() as temp_dir:
+        zip_filename = subdirectory + '.zip'
+        download_path = os.path.join(temp_dir, zip_filename)
 
-    parent_folder = args.directory.split('/')[-1]
-    
-    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-    zip_filename = f'media_extractor_images_{timestamp}.zip'
-    
-    with zipfile.ZipFile(zip_filename, 'w') as zip_file:
-        for obj in objects:
-            key = obj['Key']
-            if parent_folder not in key:
-                continue
-            #print(f'===> obj : {key}')
-            response = s3.get_object(Bucket=bucket_name, Key=key)
-            image_data = response['Body'].read()
-            zip_file.writestr(key, image_data)
+        # Create a new zip file
+        with zipfile.ZipFile(download_path, 'w') as zip_file:
+            s3 = boto3.client('s3')
+            objects = s3.list_objects_v2(Bucket=bucket_name, Prefix=subdirectory)['Contents']
 
-    @after_this_request
-    def remove_zip_file(response):
-        os.remove(zip_filename)
-        return response
-    
-    return send_file(zip_filename, as_attachment=True)
+            for obj in objects:
+                key = obj['Key']
+                if key != subdirectory + '/':  # Exclude the subdirectory itself
+                    file_path = os.path.join(temp_dir, key[len(subdirectory) + 1:])
+                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                    s3.download_file(bucket_name, key, file_path)
+                    zip_file.write(file_path, key)  # Preserve directory structure
+                    os.remove(file_path)
+
+        #TODO: Add a running indicator
+        
+        # Upload the zip file to S3
+        s3.upload_file(download_path, bucket_name, zip_filename)
+
+        return send_file(download_path, as_attachment=True)#, attachment_filename=zip_filename)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
