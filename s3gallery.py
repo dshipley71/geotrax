@@ -90,19 +90,21 @@ def download():
         # Create a new zip file
         with zipfile.ZipFile(download_path, 'w') as zip_file:
             s3 = boto3.client('s3')
-            objects = s3.list_objects_v2(Bucket=bucket_name, Prefix=subdirectory)['Contents']
 
-            for obj in objects:
-                key = obj['Key']
-                if key != subdirectory + '/':  # Exclude the subdirectory itself
-                    file_path = os.path.join(temp_dir, key[len(subdirectory) + 1:])
-                    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-                    s3.download_file(bucket_name, key, file_path)
-                    zip_file.write(file_path, key)  # Preserve directory structure
-                    os.remove(file_path)
+            # use paginator to get more than 1000 files/objects from S3 bucket
+            paginator = s3.get_paginator('list_objects_v2')
+            pages = paginator.paginate(Bucket=bucket_name, Prefix=subdirectory)
 
-        #TODO: Add a running indicator
-        
+            for page in pages:
+                for obj in page['Contents']:
+                    key = obj['Key']
+                    if key != subdirectory + '/':  # Exclude the subdirectory itself
+                        file_path = os.path.join(temp_dir, key[len(subdirectory) + 1:])
+                        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                        s3.download_file(bucket_name, key, file_path)
+                        zip_file.write(file_path, key)  # Preserve directory structure
+                        os.remove(file_path)
+
         # Upload the zip file to S3
         s3.upload_file(download_path, bucket_name, zip_filename)
 
